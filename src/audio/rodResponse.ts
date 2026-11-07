@@ -1,13 +1,14 @@
 import type { AudioEngine, AudioEngineState } from "./AudioEngine";
 import type { RodSpec } from "../reactor/layout";
 
-export function sampleRodAmplitude(
+export const MAX_SENSITIVITY = 3;
+
+export function sampleRodBaseResponse(
   engine: AudioEngine,
   state: AudioEngineState,
   bins: Uint8Array,
   rod: RodSpec,
   elapsedSeconds: number,
-  sensitivity: number,
 ): number {
   if (state.playing) {
     const hz = 45 * Math.pow(320, rod.radius / 15);
@@ -20,7 +21,7 @@ export function sampleRodAmplitude(
     const normalized =
       (bins[index] + bins[index - 1] + bins[index + 1]) / 765;
 
-    return Math.pow(normalized, 1.7) * sensitivity;
+    return Math.pow(normalized, 1.7);
   }
 
   if (state.mode === "demo") {
@@ -38,6 +39,29 @@ export function sampleRodAmplitude(
   }
 
   return 0;
+}
+
+export function sampleRodAmplitude(
+  engine: AudioEngine,
+  state: AudioEngineState,
+  bins: Uint8Array,
+  rod: RodSpec,
+  elapsedSeconds: number,
+  sensitivity: number,
+): number {
+  const baseResponse = sampleRodBaseResponse(
+    engine,
+    state,
+    bins,
+    rod,
+    elapsedSeconds,
+  );
+
+  if (state.playing) {
+    return baseResponse * sensitivity;
+  }
+
+  return baseResponse;
 }
 
 export function smoothRodHeight(

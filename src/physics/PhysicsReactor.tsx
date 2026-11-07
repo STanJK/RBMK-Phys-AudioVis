@@ -22,7 +22,9 @@ import {
 } from "@react-three/rapier";
 import type { AudioEngine } from "../audio/AudioEngine";
 import {
+  MAX_SENSITIVITY,
   sampleRodAmplitude,
+  sampleRodBaseResponse,
   smoothRodHeight,
 } from "../audio/rodResponse";
 import {
@@ -32,7 +34,8 @@ import {
   LAUNCH_CHANNEL,
   MAX_GUIDED_PROTRUSION,
   RANDOM_EJECTION_INTERVAL_SECONDS,
-  RANDOM_EJECTION_THRESHOLD,
+  RANDOM_EJECTION_RESPONSE_MAX,
+  RANDOM_EJECTION_RESPONSE_MIN,
   RANDOM_EJECTION_UPWARD_MULTIPLIER,
   ROD_LAYOUT,
   ROD_LENGTH,
@@ -187,6 +190,9 @@ function GuidedRodField({
   const verticalVelocities = useRef<Float32Array>(
     new Float32Array(guidedRods.length),
   );
+  const baseResponses = useRef<Float32Array>(
+    new Float32Array(guidedRods.length),
+  );
   const detachedIndices = useRef<Set<number>>(new Set());
   const pendingEjection = useRef<number | null>(null);
   const nextRandomEjectionAt = useRef<number | null>(null);
@@ -226,14 +232,25 @@ function GuidedRodField({
       if (detachedIndices.current.has(index)) continue;
 
       const rod = guidedRods[index];
-      const amplitude = sampleRodAmplitude(
+      const baseResponse = sampleRodBaseResponse(
         engine,
         state,
         bins,
         rod,
         elapsed,
-        sensitivity,
       );
+      baseResponses.current[index] = baseResponse;
+
+      const amplitude = state.playing
+        ? baseResponse * sensitivity
+        : sampleRodAmplitude(
+            engine,
+            state,
+            bins,
+            rod,
+            elapsed,
+            sensitivity,
+          );
 
       const previousHeight = heights.current[index];
       const nextHeight = Math.min(
@@ -279,8 +296,13 @@ function GuidedRodField({
     nextRandomEjectionAt.current =
       elapsed + RANDOM_EJECTION_INTERVAL_SECONDS;
 
-    const minimumHeight =
-      MAX_GUIDED_PROTRUSION * RANDOM_EJECTION_THRESHOLD;
+    // Candidate selection uses the global theoretical response scale, not
+    // the current sensitivity slider or the already-scaled rod height.
+    // MAX_SENSITIVITY is 3.0, so 40%-70% means a global response of 1.2-2.1.
+    const minimumGlobalResponse =
+      MAX_SENSITIVITY * RANDOM_EJECTION_RESPONSE_MIN;
+    const maximumGlobalResponse =
+      MAX_SENSITIVITY * RANDOM_EJECTION_RESPONSE_MAX;
     const candidates: number[] = [];
 
     for (
@@ -290,8 +312,12 @@ function GuidedRodField({
     ) {
       if (detachedIndices.current.has(index)) continue;
 
+      const globalResponse =
+        baseResponses.current[index] * MAX_SENSITIVITY;
+
       if (
-        heights.current[index] >= minimumHeight &&
+        globalResponse >= minimumGlobalResponse &&
+        globalResponse <= maximumGlobalResponse &&
         verticalVelocities.current[index] > 0
       ) {
         candidates.push(index);

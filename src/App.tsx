@@ -394,7 +394,7 @@ export default function App() {
               <span>
                 <strong>随机超调事故</strong>
                 <small>
-                  每 3 秒 · 提升量 &gt; 30% · 上行棒随机脱离 · VY ×6
+                  每 3 秒 · 全局响应 40–70% · 上行棒随机脱离 · VY ×10
                 </small>
               </span>
             </label>
