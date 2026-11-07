@@ -35,6 +35,7 @@ export function BilibiliSource({ engine }: BilibiliSourceProps) {
         streamUrls: result.streamUrls,
         trackName: `BILIBILI / ${label}`,
         duration: result.duration,
+        autoplay: true,
       });
     } catch (cause) {
       setResolved(null);
@@ -73,14 +74,12 @@ export function BilibiliSource({ engine }: BilibiliSourceProps) {
                 key={preset.bvid + String(preset.page ?? 1)}
                 type="button"
                 disabled={loading}
-                title={preset.note}
                 onClick={() => {
                   setInput(value);
                   void load(value);
                 }}
               >
                 <strong>{preset.label}</strong>
-                <small>{preset.note}</small>
               </button>
             );
           })}

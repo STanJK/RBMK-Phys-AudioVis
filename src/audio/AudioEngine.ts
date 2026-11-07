@@ -12,6 +12,7 @@ export interface RemoteAudioSource {
   streamUrls: string[];
   trackName: string;
   duration: number | null;
+  autoplay?: boolean;
 }
 
 type Listener = (state: AudioEngineState) => void;
@@ -281,11 +282,23 @@ export class AudioEngine {
         playing: false,
         trackName: source.trackName,
         duration: source.duration,
-        message:
-          urls.length > 1
-            ? "B 站音频已解析：先尝试 CDN 直连，失败会自动切 Worker 代理。"
-            : "B 站音频已解析：当前只有一条可用链路。",
+        message: "B 站音频已解析，正在启动播放…",
       });
+
+      if (source.autoplay) {
+        try {
+          await media.play();
+          this.patch({
+            playing: true,
+            message: "B 站音频已自动播放并进入频谱分析。",
+          });
+        } catch {
+          this.patch({
+            playing: false,
+            message: "B 站音频已载入，但浏览器阻止了自动播放；点击 ▶ 即可继续。",
+          });
+        }
+      }
     } catch {
       this.cleanupRemoteAudio();
       this.patch({
