@@ -44,7 +44,6 @@ export function ReactorVisualizer({
   onMetrics,
 }: ReactorVisualizerProps) {
   const coreRef = useRef<HTMLCanvasElement>(null);
-  const spectrumRef = useRef<HTMLCanvasElement>(null);
   const sensitivityRef = useRef(sensitivity);
   const smoothingRef = useRef(smoothing);
   const metricsRef = useRef(onMetrics);
@@ -68,7 +67,7 @@ export function ReactorVisualizer({
 
   useEffect(() => {
     const canvas = coreRef.current;
-    const spectrum = spectrumRef.current;
+    const spectrum = document.getElementById("spectrum") as HTMLCanvasElement | null;
     if (!canvas || !spectrum) return;
 
     const g = canvas.getContext("2d");
@@ -350,13 +349,10 @@ export function ReactorVisualizer({
   }, [engine]);
 
   return (
-    <>
-      <canvas
-        ref={coreRef}
-        id="core"
-        aria-label="圆形控制棒阵列，随音频频谱起伏的三维可视化"
-      />
-      <canvas ref={spectrumRef} id="spectrum" aria-label="实时频谱" />
-    </>
+    <canvas
+      ref={coreRef}
+      id="core"
+      aria-label="圆形控制棒阵列，随音频频谱起伏的三维可视化"
+    />
   );
 }
