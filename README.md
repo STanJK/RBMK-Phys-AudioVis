@@ -33,7 +33,7 @@ The renderer is now a real rigid-body scene:
 - gravity, friction, CCD and collisions remain active after release
 - the displaced rod can fall across the still-moving guided array
 - an invisible cylindrical containment wall rises two rod lengths above the core ring and is open at the top
-- optional random overdrive mode checks every 5 seconds for guided rods above 30% travel and moving upward, releases one at random, and multiplies its instantaneous upward velocity by 10
+- optional random overdrive mode checks every 3 seconds for guided rods above 30% travel and moving upward, releases one at random, and multiplies its instantaneous upward velocity by 6
 - released random rods remain dynamic and are never auto-cleaned until physics reset
 - physics reset remounts the world
 
