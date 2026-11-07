@@ -328,7 +328,7 @@ function GuidedRodField({
           );
           rb.setLinvel({ x: 0, y: 0, z: 0 }, true);
           rb.setAngvel({ x: 0, y: 0, z: 0 }, true);
-          rb.setBodyType(rapier.RigidBodyType.KinematicPosition, true);
+          rb.setBodyType(rapier.RigidBodyType.KinematicPositionBased, true);
           detachedIndices.current.delete(index);
           thermal.phase = "recovering";
           thermal.landedAt = elapsed;
