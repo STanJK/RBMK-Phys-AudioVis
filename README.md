@@ -16,6 +16,8 @@ The React audio/control layer preserves the reference visualizer's behavior:
 - built-in demo signal
 - microphone capture
 - local audio file import
+- Bilibili URL / BV input via the official external player
+- browser tab-audio capture into the same Web Audio analyser
 - play / pause / seek
 - sensitivity, smoothing and playback volume controls
 - 48-band spectrum display
@@ -57,3 +59,8 @@ See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 ## Disclaimer
 
 This is an audiovisual toy, not a reactor simulation.
+
+
+### Bilibili source
+
+The static GitHub Pages build does not resolve Bilibili CDN media URLs directly. Instead it uses Bilibili's official external iframe player and the browser's display-capture audio track. In Chrome/Edge, choose the current tab and enable tab-audio sharing when prompted.

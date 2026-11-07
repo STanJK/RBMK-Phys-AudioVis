@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AudioEngine, type AudioEngineState } from "./audio/AudioEngine";
+import { BilibiliSource } from "./bilibili/BilibiliSource";
 import { PhysicsReactor } from "./physics/PhysicsReactor";
 import {
   LAUNCH_CHANNEL,
@@ -30,6 +31,7 @@ export default function App() {
   const [resetViewToken, setResetViewToken] = useState(0);
   const [launch418, setLaunch418] = useState(false);
   const [physicsEpoch, setPhysicsEpoch] = useState(0);
+  const [showBilibili, setShowBilibili] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => engine.subscribe(setAudio), [engine]);
@@ -159,80 +161,105 @@ export default function App() {
             <div className="source-tabs">
               <button
                 type="button"
-                className={audio.mode === "demo" ? "selected" : ""}
-                onClick={() => void engine.selectDemo()}
+                className={!showBilibili && audio.mode === "demo" ? "selected" : ""}
+                onClick={() => {
+                  setShowBilibili(false);
+                  void engine.selectDemo();
+                }}
               >
-                演示信号
+                演示
               </button>
               <button
                 type="button"
-                className={audio.mode === "mic" ? "selected" : ""}
-                onClick={() => void engine.selectMic()}
+                className={!showBilibili && audio.mode === "mic" ? "selected" : ""}
+                onClick={() => {
+                  setShowBilibili(false);
+                  void engine.selectMic();
+                }}
               >
                 麦克风
               </button>
-            </div>
-
-            <button
-              type="button"
-              className="upload"
-              onClick={() => fileRef.current?.click()}
-            >
-              <span>＋</span>
-              <strong>导入音频文件</strong>
-              <small>MP3 / WAV / M4A / FLAC</small>
-            </button>
-
-            <input
-              ref={fileRef}
-              type="file"
-              accept="audio/*"
-              hidden
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) void engine.loadFile(file);
-                event.currentTarget.value = "";
-              }}
-            />
-
-            <div className="track">
-              <span className="track-icon">≋</span>
-              <div>
-                <strong>{audio.trackName}</strong>
-                <small>
-                  {audio.playing
-                    ? "固定长度棒阵列随频谱实时升降"
-                    : "点击播放，启动声场"}
-                </small>
-              </div>
               <button
                 type="button"
-                className="play"
-                aria-label={audio.playing ? "暂停" : "播放"}
-                onClick={() => void engine.toggle()}
+                className={showBilibili ? "selected" : ""}
+                onClick={() => {
+                  setShowBilibili(true);
+                  engine.selectTabSource("BILIBILI / 等待视频链接");
+                }}
               >
-                {audio.playing ? "Ⅱ" : "▶"}
+                B站
               </button>
             </div>
 
-            <div className="timeline">
-              <input
-                aria-label="播放进度"
-                type="range"
-                min="0"
-                max="100"
-                value={seekValue}
-                step="0.1"
-                disabled={audio.mode !== "file"}
-                onChange={(event) =>
-                  void engine.seek(Number(event.target.value))
-                }
+            {showBilibili ? (
+              <BilibiliSource
+                engine={engine}
+                capturing={audio.mode === "tab" && audio.playing}
               />
-              <div>
-                <span>{formatTime(elapsed)}</span>
-                <span>{duration ? formatTime(duration) : "DEMO / LOOP"}</span>
-              </div>
-            </div>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className="upload"
+                  onClick={() => fileRef.current?.click()}
+                >
+                  <span>＋</span>
+                  <strong>导入音频文件</strong>
+                  <small>MP3 / WAV / M4A / FLAC</small>
+                </button>
+
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="audio/*"
+                  hidden
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) void engine.loadFile(file);
+                    event.currentTarget.value = "";
+                  }}
+                />
+
+                <div className="track">
+                  <span className="track-icon">≋</span>
+                  <div>
+                    <strong>{audio.trackName}</strong>
+                    <small>
+                      {audio.playing
+                        ? "固定长度棒阵列随频谱实时升降"
+                        : "点击播放，启动声场"}
+                    </small>
+                  </div>
+                  <button
+                    type="button"
+                    className="play"
+                    aria-label={audio.playing ? "暂停" : "播放"}
+                    onClick={() => void engine.toggle()}
+                  >
+                    {audio.playing ? "Ⅱ" : "▶"}
+                  </button>
+                </div>
+
+                <div className="timeline">
+                  <input
+                    aria-label="播放进度"
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={seekValue}
+                    step="0.1"
+                    disabled={audio.mode !== "file"}
+                    onChange={(event) =>
+                      void engine.seek(Number(event.target.value))
+                    }
+                  />
+                  <div>
+                    <span>{formatTime(elapsed)}</span>
+                    <span>{duration ? formatTime(duration) : "DEMO / LOOP"}</span>
+                  </div>
+                </div>
+              </>
+            )}
           </section>
 
           <section>
@@ -279,6 +306,7 @@ export default function App() {
               min="0"
               max="100"
               value={volume}
+              disabled={audio.mode === "tab"}
               onChange={(event) =>
                 setVolume(Number(event.target.value))
               }

@@ -658,3 +658,87 @@ footer span:nth-child(2) {
     margin-bottom: 24px;
   }
 }
+
+
+.bilibili-source {
+  margin-top: 14px;
+}
+
+.bili-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px;
+}
+
+.bili-input {
+  min-width: 0;
+  height: 38px;
+  padding: 0 10px;
+  border: 1px solid #3b4438;
+  background: #101510;
+  color: #dfe5d8;
+  font: 11px monospace;
+}
+
+.bili-input::placeholder {
+  color: #667060;
+}
+
+.bili-input-row button,
+.capture-tab {
+  border: 1px solid #4b5545;
+  background: #293126;
+  color: #d8dfca;
+  padding: 0 13px;
+  font-size: 12px;
+}
+
+.bili-input-row button:hover,
+.capture-tab:hover {
+  border-color: var(--accent);
+}
+
+.bili-error {
+  margin: 9px 0 0;
+  color: #d88f77;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.bili-player {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  margin-top: 12px;
+  overflow: hidden;
+  border: 1px solid #333b31;
+  background: #090c0a;
+}
+
+.bili-player iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.capture-tab {
+  width: 100%;
+  min-height: 40px;
+  margin-top: 10px;
+  font: 12px monospace;
+}
+
+.capture-tab.active {
+  border-color: #9e7552;
+  background: #5a3d2d;
+  color: #ffe6d8;
+}
+
+.bili-help {
+  margin: 9px 0 0;
+  color: #7f8a78;
+  font-size: 11px;
+  line-height: 1.55;
+}

@@ -1,4 +1,4 @@
-export type AudioMode = "demo" | "mic" | "file";
+export type AudioMode = "demo" | "mic" | "file" | "tab";
 
 export interface AudioEngineState {
   mode: AudioMode;
@@ -9,6 +9,12 @@ export interface AudioEngineState {
 }
 
 type Listener = (state: AudioEngineState) => void;
+
+type DisplayCaptureOptions = DisplayMediaStreamOptions & {
+  preferCurrentTab?: boolean;
+  selfBrowserSurface?: "include" | "exclude";
+  systemAudio?: "include" | "exclude";
+};
 
 export class AudioEngine {
   private context: AudioContext | null = null;
@@ -85,7 +91,15 @@ export class AudioEngine {
   }
 
   setVolume(percent: number) {
-    if (!this.master || !this.context || this.state.mode === "mic") return;
+    if (
+      !this.master ||
+      !this.context ||
+      this.state.mode === "mic" ||
+      this.state.mode === "tab"
+    ) {
+      return;
+    }
+
     const value = Math.min(1, Math.max(0, percent / 100));
     this.master.gain.setTargetAtTime(value, this.context.currentTime, 0.03);
   }
@@ -116,6 +130,90 @@ export class AudioEngine {
     await this.start();
   }
 
+  selectTabSource(trackName = "BILIBILI / 标签页音频") {
+    this.stopAll(false);
+    this.buffer = null;
+    this.offset = 0;
+    this.patch({
+      mode: "tab",
+      trackName,
+      duration: null,
+      message: "载入视频后，点击“捕获本标签页音频”。",
+    });
+  }
+
+  async captureTabAudio() {
+    if (this.state.mode !== "tab") return;
+
+    this.stopPlaybackNodes();
+
+    try {
+      await this.ensureAudio();
+
+      if (!navigator.mediaDevices?.getDisplayMedia) {
+        throw new Error("display-capture-unsupported");
+      }
+
+      const options: DisplayCaptureOptions = {
+        video: {
+          displaySurface: "browser",
+          frameRate: { ideal: 1, max: 2 },
+        },
+        audio: {
+          suppressLocalAudioPlayback: false,
+        },
+        preferCurrentTab: true,
+        selfBrowserSurface: "include",
+        systemAudio: "exclude",
+      };
+
+      const stream = await navigator.mediaDevices.getDisplayMedia(options);
+      const audioTrack = stream.getAudioTracks()[0];
+
+      if (!audioTrack) {
+        stream.getTracks().forEach((track) => track.stop());
+        this.patch({
+          playing: false,
+          message:
+            "没有捕获到标签页音频。请选择“此标签页/当前标签页”，并勾选“共享标签页音频”。",
+        });
+        return;
+      }
+
+      this.stream = stream;
+      this.mediaSource = this.context!.createMediaStreamSource(stream);
+      this.mediaSource.connect(this.analyser!);
+
+      // The embedded Bilibili player already plays locally. Keep the capture
+      // path analysis-only to avoid double playback or feedback.
+      this.master!.gain.value = 0;
+
+      audioTrack.onended = () => {
+        if (this.state.mode !== "tab") return;
+        this.stopPlaybackNodes();
+        this.patch({
+          playing: false,
+          message: "标签页音频捕获已结束。",
+        });
+      };
+
+      this.startedAt = this.context!.currentTime;
+      this.offset = 0;
+      this.patch({
+        playing: true,
+        message:
+          "正在分析 B 站播放器的标签页音频。播放器本身的音量请在 B 站播放器内调整。",
+      });
+    } catch {
+      this.stopPlaybackNodes();
+      this.patch({
+        playing: false,
+        message:
+          "无法捕获标签页音频。推荐使用桌面版 Chrome/Edge，并在共享窗口中选择当前标签页和“共享标签页音频”。",
+      });
+    }
+  }
+
   async loadFile(file: File) {
     this.stopAll(false);
     await this.ensureAudio();
@@ -139,9 +237,15 @@ export class AudioEngine {
   async toggle() {
     if (this.state.playing) {
       this.pause();
-    } else {
-      await this.start();
+      return;
     }
+
+    if (this.state.mode === "tab") {
+      await this.captureTabAudio();
+      return;
+    }
+
+    await this.start();
   }
 
   async seek(percent: number) {
@@ -298,7 +402,10 @@ export class AudioEngine {
     this.demoSources = [];
 
     if (this.stream) {
-      this.stream.getTracks().forEach((track) => track.stop());
+      this.stream.getTracks().forEach((track) => {
+        track.onended = null;
+        track.stop();
+      });
       this.stream = null;
     }
   }
