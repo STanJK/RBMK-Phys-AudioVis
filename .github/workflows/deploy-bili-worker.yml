@@ -2,11 +2,6 @@ name: deploy-bili-worker
 
 on:
   workflow_dispatch:
-  push:
-    branches: ["main"]
-    paths:
-      - "worker/**"
-      - ".github/workflows/deploy-bili-worker.yml"
 
 permissions:
   contents: read
@@ -39,11 +34,6 @@ jobs:
 
           echo "::group::health"
           curl --fail-with-body --silent --show-error "$DEPLOYMENT_URL/health"
-          echo
-          echo "::endgroup::"
-
-          echo "::group::mobile host probe"
-          curl --fail-with-body --silent --show-error "$DEPLOYMENT_URL/diag/mobile"
           echo
           echo "::endgroup::"
 
