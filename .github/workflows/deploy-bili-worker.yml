@@ -2,11 +2,6 @@ name: deploy-bili-worker
 
 on:
   workflow_dispatch:
-  push:
-    branches: ["main"]
-    paths:
-      - "worker/**"
-      - ".github/workflows/deploy-bili-worker.yml"
 
 permissions:
   contents: read
@@ -50,5 +45,5 @@ jobs:
             echo "- URL: `$DEPLOYMENT_URL`"
             echo "- Health: `$DEPLOYMENT_URL/health`"
             echo
-            echo "Paste the Worker URL into the Bilibili panel once; the frontend stores it in localStorage."
+            echo "The production frontend already embeds this Worker URL as its default fallback."
           } >> "$GITHUB_STEP_SUMMARY"

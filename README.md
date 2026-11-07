@@ -76,3 +76,14 @@ GitHub Pages remains static. Bilibili resolution is browser-first:
 The browser plays the chosen stream through an `HTMLAudioElement`, routes it into the existing Web Audio analyser, and applies the normal playback-volume slider. No screen/tab capture is used.
 
 The Worker is therefore optional when both direct API access and direct CDN CORS work in the current browser/network, and acts as a fallback otherwise. Its URL is stored in localStorage so changing the endpoint does not require a Pages rebuild.
+
+
+### Production Worker
+
+The production fallback endpoint is embedded by default:
+
+```
+https://rbmk-bili-audio-proxy.stanjk24.workers.dev
+```
+
+The Bilibili panel still permits a local override for development/testing.

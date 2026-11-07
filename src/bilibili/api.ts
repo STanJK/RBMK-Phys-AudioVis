@@ -2,6 +2,9 @@ import type { BilibiliVideoRef } from "./parse";
 
 export type BilibiliResolverPath = "browser" | "worker-fallback";
 
+export const DEFAULT_BILIBILI_WORKER_URL =
+  "https://rbmk-bili-audio-proxy.stanjk24.workers.dev";
+
 export interface ResolvedBilibiliAudio {
   bvid: string;
   cid: number;
@@ -47,12 +50,13 @@ export function getConfiguredWorkerUrl(): string {
   if (envUrl) return normalizeWorkerUrl(envUrl);
 
   try {
-    return normalizeWorkerUrl(
-      window.localStorage.getItem("rbmk-bili-worker-url") ?? "",
-    );
+    const stored = window.localStorage.getItem("rbmk-bili-worker-url");
+    if (stored) return normalizeWorkerUrl(stored);
   } catch {
-    return "";
+    // Ignore blocked storage and use the embedded production fallback.
   }
+
+  return DEFAULT_BILIBILI_WORKER_URL;
 }
 
 export function saveWorkerUrl(value: string) {

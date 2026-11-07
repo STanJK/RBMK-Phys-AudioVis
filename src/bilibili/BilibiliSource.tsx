@@ -53,14 +53,14 @@ export function BilibiliSource({ engine }: BilibiliSourceProps) {
   return (
     <div className="bilibili-source">
       <div className="worker-config">
-        <label htmlFor="bili-worker-url">Worker fallback URL（可选）</label>
+        <label htmlFor="bili-worker-url">Worker fallback URL（默认已内置）</label>
         <input
           id="bili-worker-url"
           className="bili-input"
           type="url"
           value={workerUrl}
           spellCheck={false}
-          placeholder="本地解析失败/直连失败时才使用"
+          placeholder="https://rbmk-bili-audio-proxy.stanjk24.workers.dev"
           onChange={(event) => setWorkerUrl(event.target.value)}
           onBlur={() => setWorkerUrl(saveWorkerUrl(workerUrl))}
         />
