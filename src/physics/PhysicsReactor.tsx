@@ -12,8 +12,11 @@ import {
 } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import {
+  EffectComposer,
+  N8AO,
+} from "@react-three/postprocessing";
+import {
   CuboidCollider,
-  CylinderCollider,
   InstancedRigidBodies,
   TrimeshCollider,
   Physics,
@@ -763,9 +766,13 @@ function GroundSystem({
         restitution={0.08}
       />
 
-      <CylinderCollider
-        args={[0.05, CONTAINMENT_WALL_RADIUS]}
-        position={[0, CORE_TOP_Y - 0.05, 0]}
+      <CuboidCollider
+        args={[
+          EXTERNAL_GROUND_RADIUS,
+          0.75,
+          EXTERNAL_GROUND_RADIUS,
+        ]}
+        position={[0, CORE_TOP_Y - 0.75, 0]}
         collisionGroups={RETURN_FLOOR_COLLISION_GROUPS}
         friction={0.9}
         restitution={0.08}
@@ -1407,8 +1414,8 @@ function ReactorScene({
         castShadow
         position={[13, 26, 11]}
         intensity={2.1}
-        shadow-mapSize-width={2048}
-        shadow-mapSize-height={2048}
+        shadow-mapSize-width={1024}
+        shadow-mapSize-height={1024}
         shadow-camera-left={-EXTERNAL_GROUND_RADIUS - 8}
         shadow-camera-right={EXTERNAL_GROUND_RADIUS + 8}
         shadow-camera-top={EXTERNAL_GROUND_RADIUS + 8}
@@ -1449,6 +1456,17 @@ function ReactorScene({
         maxDistance={58}
         maxPolarAngle={Math.PI * 0.49}
       />
+
+      <EffectComposer multisampling={0}>
+        <N8AO
+          quality="performance"
+          halfRes
+          aoRadius={1.8}
+          distanceFalloff={0.75}
+          intensity={1.15}
+          depthAwareUpsampling
+        />
+      </EffectComposer>
     </>
   );
 }
