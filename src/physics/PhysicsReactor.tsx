@@ -1,6 +1,7 @@
 import {
   Suspense,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
 } from "react";
@@ -266,6 +267,19 @@ function GuidedRodField({
       })),
     [],
   );
+
+  useLayoutEffect(() => {
+    const colorMesh = mesh.current;
+    if (!colorMesh) return;
+
+    for (let index = 0; index < guidedRods.length; index += 1) {
+      colorMesh.setColorAt(index, ROD_GREEN);
+    }
+
+    if (colorMesh.instanceColor) {
+      colorMesh.instanceColor.needsUpdate = true;
+    }
+  }, []);
 
   useEffect(() => {
     nextRandomEjectionAt.current = null;
@@ -605,7 +619,6 @@ function GuidedRodField({
       >
         <boxGeometry args={[ROD_WIDTH, ROD_LENGTH, ROD_WIDTH]} />
         <meshStandardMaterial
-          vertexColors
           color="#ffffff"
           roughness={0.72}
           metalness={0.22}
