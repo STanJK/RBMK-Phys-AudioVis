@@ -1433,23 +1433,60 @@ function GuidedRodField({
     az5EjectAt.current = null;
     az5StartAt.current = null;
 
+    const launchIndices: number[] = [];
+    let existingPairCollisionCount = 0;
+
     for (
       let index = 0;
       index < guidedRods.length && index < rigidBodies.current.length;
       index += 1
     ) {
       const rb = rigidBodies.current[index];
+
+      if (
+        detachedIndices.current.has(index) &&
+        !collisionDisabledIndices.current.has(index) &&
+        !rodPairCollisionDisabledIndices.current.has(index) &&
+        rb?.isDynamic()
+      ) {
+        existingPairCollisionCount += 1;
+      }
+
+      if (
+        !everEjectedIndices.current.has(index) &&
+        thermalStates.current[index] !== null
+      ) {
+        launchIndices.push(index);
+      }
+    }
+
+    const shuffledLaunchIndices = [...launchIndices];
+    for (
+      let index = shuffledLaunchIndices.length - 1;
+      index > 0;
+      index -= 1
+    ) {
+      const swapIndex = Math.floor(Math.random() * (index + 1));
+      const value = shuffledLaunchIndices[index];
+      shuffledLaunchIndices[index] =
+        shuffledLaunchIndices[swapIndex];
+      shuffledLaunchIndices[swapIndex] = value;
+    }
+
+    const availablePairCollisionSlots = Math.max(
+      0,
+      MAX_ROD_PAIR_COLLIDING_RODS - existingPairCollisionCount,
+    );
+    const pairCollisionAllowed = new Set(
+      shuffledLaunchIndices.slice(0, availablePairCollisionSlots),
+    );
+
+    for (const index of launchIndices) {
+      const rb = rigidBodies.current[index];
       const rod = guidedRods[index];
       const thermal = thermalStates.current[index];
 
-      if (
-        !rb ||
-        !rod ||
-        !thermal ||
-        everEjectedIndices.current.has(index)
-      ) {
-        continue;
-      }
+      if (!rb || !rod || !thermal) continue;
 
       if (!detachedIndices.current.has(index)) {
         rb.setTranslation(
@@ -1464,11 +1501,18 @@ function GuidedRodField({
 
       detachedIndices.current.add(index);
       everEjectedIndices.current.add(index);
+
+      if (!pairCollisionAllowed.has(index)) {
+        rodPairCollisionDisabledIndices.current.add(index);
+      }
+      applyRodCollisionMode(index, rb);
+
       rb.setBodyType(rapier.RigidBodyType.Dynamic, true);
       rb.recomputeMassPropertiesFromColliders();
       rb.enableCcd(true);
       rb.resetForces(true);
       rb.resetTorques(true);
+
       const launchSpeed = Math.max(
         AZ5_MIN_LAUNCH_SPEED,
         Math.max(0, verticalVelocities.current[index]) *
