@@ -1214,11 +1214,17 @@ function GuidedRodField({
             },
             true,
           );
+          const finalLaunchSpeed = Math.max(
+            AZ5_MIN_LAUNCH_SPEED,
+            Math.abs(thermal.launchSpeed),
+          );
+          thermal.launchSpeed = finalLaunchSpeed;
+
           rb.setGravityScale(1, true);
           rb.setLinvel(
             {
               x: 0,
-              y: thermal.launchSpeed,
+              y: finalLaunchSpeed,
               z: 0,
             },
             true,
@@ -1236,7 +1242,7 @@ function GuidedRodField({
           thermal.ejectedAt = elapsed;
           thermal.launchY = bottomCenterY;
           thermal.predictedRise =
-            (thermal.launchSpeed * thermal.launchSpeed) /
+            (finalLaunchSpeed * finalLaunchSpeed) /
             (2 * GRAVITY);
           thermal.recoverable = false;
 
@@ -1583,7 +1589,7 @@ function GuidedRodField({
       const entryVelocity = verticalVelocities.current[index];
       const launchSpeed = Math.max(
         AZ5_MIN_LAUNCH_SPEED,
-        Math.max(0, entryVelocity) *
+        Math.abs(entryVelocity) *
           AZ5_LAUNCH_MULTIPLIER,
       );
 
