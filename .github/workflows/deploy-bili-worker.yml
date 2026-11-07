@@ -31,8 +31,16 @@ jobs:
         run: |
           set -euo pipefail
           echo "Worker URL: $DEPLOYMENT_URL"
-          curl --fail --silent --show-error "$DEPLOYMENT_URL/health"
+
+          echo "::group::health"
+          curl --fail-with-body --silent --show-error "$DEPLOYMENT_URL/health"
           echo
+          echo "::endgroup::"
+
+          echo "::group::resolve smoke"
+          curl --fail-with-body --silent --show-error             "$DEPLOYMENT_URL/resolve?bvid=BV1VGYR6bECg&p=1"
+          echo
+          echo "::endgroup::"
 
       - name: Publish deployment summary
         shell: bash
