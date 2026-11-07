@@ -13,10 +13,12 @@ import {
 import { OrbitControls } from "@react-three/drei";
 import {
   CuboidCollider,
+  CylinderCollider,
   InstancedRigidBodies,
   TrimeshCollider,
   Physics,
   RigidBody,
+  interactionGroups,
   useBeforePhysicsStep,
   useRapier,
   type InstancedRigidBodyProps,
@@ -64,7 +66,8 @@ interface PhysicsReactorProps {
   sensitivity: number;
   smoothing: number;
   randomEjectionsEnabled: boolean;
-  az5TriggerToken: number;  resetViewToken: number;
+  az5TriggerToken: number;
+  resetViewToken: number;
   physicsEpoch: number;
 }
 
@@ -90,6 +93,10 @@ const WALL_THICKNESS = 0.28;
 const GRAVITY = 9.81;
 const HEIGHT_LIMIT_HALF_SIZE = 18.4;
 const HEIGHT_LIMIT_HALF_THICKNESS = 0.16;
+
+const ROD_GUIDED_COLLISION_GROUPS = interactionGroups(0, [0]);
+const ROD_RETURN_COLLISION_GROUPS = interactionGroups(0, [0, 1]);
+const RETURN_FLOOR_COLLISION_GROUPS = interactionGroups(1, [0]);
 
 const ROD_GREEN = new Color("#82956f");
 const ROD_HOT = new Color("#d24f43");
@@ -313,6 +320,20 @@ function ExternalGround() {
   );
 }
 
+function GlobalReturnFloor() {
+  return (
+    <RigidBody type="fixed" colliders={false}>
+      <CylinderCollider
+        args={[0.05, CONTAINMENT_WALL_RADIUS]}
+        position={[0, CORE_TOP_Y - 0.05, 0]}
+        collisionGroups={RETURN_FLOOR_COLLISION_GROUPS}
+        friction={0.9}
+        restitution={0.08}
+      />
+    </RigidBody>
+  );
+}
+
 function HeightLimitPlate() {
   return (
     <RigidBody type="fixed" colliders={false}>
@@ -362,6 +383,7 @@ function CoreBase({
       <LowerContainmentWall />
       {upperWallEnabled && <UpperContainmentWall />}
       <ExternalGround />
+      <GlobalReturnFloor />
       <HeightLimitPlate />
     </>
   );
@@ -372,13 +394,15 @@ function GuidedRodField({
   sensitivity,
   smoothing,
   randomEjectionsEnabled,
-  az5TriggerToken,}: Pick<
+  az5TriggerToken,
+}: Pick<
   ReactorSceneProps,
   | "engine"
   | "sensitivity"
   | "smoothing"
   | "randomEjectionsEnabled"
-  | "az5TriggerToken">) {
+  | "az5TriggerToken"
+>) {
   const rigidBodies = useRef<RapierRigidBody[]>([]);
   const mesh = useRef<InstancedMesh | null>(null);
   const heights = useRef<Float32Array>(
@@ -391,6 +415,7 @@ function GuidedRodField({
     new Float32Array(guidedRods.length),
   );
   const detachedIndices = useRef<Set<number>>(new Set());
+  const surfaceClearedIndices = useRef<Set<number>>(new Set());
   const thermalStates = useRef<Array<RodThermalState | null>>(
     Array.from({ length: guidedRods.length }, () => null),
   );
@@ -472,6 +497,14 @@ function GuidedRodField({
     }
   }, [randomEjectionsEnabled]);
 
+  const enableReturnFloorCollision = (rb: RapierRigidBody) => {
+    for (let colliderIndex = 0; colliderIndex < rb.numColliders(); colliderIndex += 1) {
+      rb.collider(colliderIndex).setCollisionGroups(
+        ROD_RETURN_COLLISION_GROUPS,
+      );
+    }
+  };
+
   useFrame(({ clock }, delta) => {
     const bodies = rigidBodies.current;
     if (!bodies || bodies.length === 0) return;
@@ -490,6 +523,24 @@ function GuidedRodField({
       const thermal = thermalStates.current[index];
       const rb = bodies[index];
       const rod = guidedRods[index];
+
+      if (
+        rb &&
+        detachedIndices.current.has(index) &&
+        !surfaceClearedIndices.current.has(index)
+      ) {
+        const translation = rb.translation();
+        const bottomY = translation.y - ROD_LENGTH / 2;
+
+        if (bottomY >= CORE_TOP_Y + 0.01) {
+          surfaceClearedIndices.current.add(index);
+          enableReturnFloorCollision(rb);
+
+          if (thermal) {
+            thermal.recoverable = false;
+          }
+        }
+      }
 
       if (thermal?.phase === "ejected" && thermal.recoverable && rb) {
         const translation = rb.translation();
@@ -521,6 +572,15 @@ function GuidedRodField({
           rb.setLinvel({ x: 0, y: 0, z: 0 }, true);
           rb.setAngvel({ x: 0, y: 0, z: 0 }, true);
           rb.setBodyType(rapier.RigidBodyType.KinematicPositionBased, true);
+          for (
+            let colliderIndex = 0;
+            colliderIndex < rb.numColliders();
+            colliderIndex += 1
+          ) {
+            rb.collider(colliderIndex).setCollisionGroups(
+              ROD_GUIDED_COLLISION_GROUPS,
+            );
+          }
           detachedIndices.current.delete(index);
           thermal.phase = "recovering";
           thermal.landedAt = elapsed;
@@ -858,7 +918,8 @@ function GuidedRodField({
     thermal.ejectedAt = elapsedSeconds.current;
     thermal.launchY = launchY;
 
-    rb.wakeUp();  });
+    rb.wakeUp();
+  });
 
   return (
     <InstancedRigidBodies
@@ -866,6 +927,7 @@ function GuidedRodField({
       type="kinematicPosition"
       instances={instances}
       colliders="cuboid"
+      collisionGroups={ROD_GUIDED_COLLISION_GROUPS}
       friction={0.72}
       restitution={0.12}
     >
@@ -894,7 +956,6 @@ function ReactorScene({
   smoothing,
   randomEjectionsEnabled,
   az5TriggerToken,
-  onRandomEjection,
   resetViewToken,
 }: ReactorSceneProps) {
   return (
@@ -924,7 +985,8 @@ function ReactorScene({
             sensitivity={sensitivity}
             smoothing={smoothing}
             randomEjectionsEnabled={randomEjectionsEnabled}
-            az5TriggerToken={az5TriggerToken}          />
+            az5TriggerToken={az5TriggerToken}
+          />
         </Physics>
       </Suspense>
 
