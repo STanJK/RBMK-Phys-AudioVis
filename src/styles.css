@@ -115,11 +115,25 @@ main {
   );
 }
 
+.three-core {
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+}
+
+.three-core canvas {
+  cursor: grab;
+}
+
+.three-core canvas:active {
+  cursor: grabbing;
+}
+
 .stage-title {
   position: absolute;
   top: 30px;
   left: 34px;
-  z-index: 1;
+  z-index: 2;
   pointer-events: none;
 }
 
@@ -152,6 +166,7 @@ h1 span {
   font-size: 12px;
   color: #bdc5ad;
   z-index: 2;
+  pointer-events: none;
 }
 
 .live i {
@@ -162,19 +177,6 @@ h1 span {
   box-shadow: 0 0 10px #deec9544;
 }
 
-#core {
-  width: 100%;
-  height: 100%;
-  position: absolute;
-  inset: 0;
-  touch-action: none;
-  cursor: grab;
-}
-
-#core:active {
-  cursor: grabbing;
-}
-
 .axis {
   position: absolute;
   bottom: 66px;
@@ -183,6 +185,7 @@ h1 span {
   letter-spacing: 1.5px;
   color: #737e6c;
   pointer-events: none;
+  z-index: 2;
 }
 
 .stage-bottom {
@@ -196,6 +199,11 @@ h1 span {
   color: #839078;
   font-size: 12px;
   z-index: 2;
+  pointer-events: none;
+}
+
+.stage-bottom .plain {
+  pointer-events: auto;
 }
 
 .scale {
@@ -208,6 +216,7 @@ h1 span {
   font-size: 12px;
   color: #99a58d;
   pointer-events: none;
+  z-index: 2;
 }
 
 .scale span:first-child {
@@ -457,6 +466,55 @@ input[type="range"]:disabled {
   padding-bottom: 14px;
 }
 
+.physics-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 11px 12px;
+  border: 1px solid #333b31;
+  background: #111612;
+  font: 11px monospace;
+  color: #87917e;
+}
+
+.physics-status strong {
+  color: #d8dfca;
+  font-weight: 500;
+}
+
+.launch-button,
+.reset-physics {
+  width: 100%;
+  min-height: 40px;
+  margin-top: 10px;
+  border: 1px solid #8a5944;
+  background: #663d2f;
+  color: #ffe5d7;
+  font: 12px monospace;
+  letter-spacing: 0.06em;
+}
+
+.launch-button:hover:not(:disabled) {
+  background: #7a4938;
+}
+
+.launch-button:disabled {
+  border-color: #40473e;
+  background: #252a24;
+  color: #777f72;
+  cursor: default;
+}
+
+.reset-physics {
+  border-color: #454f42;
+  background: #20261f;
+  color: #aeb7a6;
+}
+
+.reset-physics:hover {
+  background: #2a3228;
+}
+
 .message {
   font-size: 12px;
   color: #8f9a85;
@@ -497,7 +555,6 @@ footer span:nth-child(2) {
   .stage {
     min-height: 760px;
   }
-
 }
 
 @media (max-width: 1000px) {
@@ -522,7 +579,6 @@ footer span:nth-child(2) {
   .stage {
     min-height: 720px;
   }
-
 }
 
 @media (max-width: 700px) {
@@ -570,7 +626,6 @@ footer span:nth-child(2) {
     border-left: 0;
     border-top: 1px solid var(--line);
     padding: 25px;
-    position: relative;
   }
 
   .stage-bottom,

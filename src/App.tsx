@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AudioEngine, type AudioEngineState } from "./audio/AudioEngine";
+import { PhysicsReactor } from "./physics/PhysicsReactor";
 import {
-  REACTOR_CHANNEL_COUNT,
-  ReactorVisualizer,
-} from "./visualizer/ReactorVisualizer";
+  LAUNCH_CHANNEL,
+  ROD_LAYOUT,
+} from "./reactor/layout";
+import { SpectrumAnalyzer } from "./visualizer/SpectrumAnalyzer";
 
 function formatTime(seconds: number) {
   return (
@@ -26,6 +28,8 @@ export default function App() {
   const [peakHz, setPeakHz] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [resetViewToken, setResetViewToken] = useState(0);
+  const [launch418, setLaunch418] = useState(false);
+  const [physicsEpoch, setPhysicsEpoch] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => engine.subscribe(setAudio), [engine]);
@@ -43,33 +47,24 @@ export default function App() {
 
   useEffect(() => () => engine.dispose(), [engine]);
 
-  const updateMetrics = useCallback((level: number | null, peak: number | null) => {
-    setLevelDb(level);
-    setPeakHz(peak);
-  }, []);
-
-  const selectDemo = () => {
-    void engine.selectDemo();
-  };
-
-  const selectMic = () => {
-    void engine.selectMic();
-  };
-
-  const togglePlay = () => {
-    void engine.toggle();
-  };
-
-  const handleFile = (file: File | undefined) => {
-    if (!file) return;
-    void engine.loadFile(file);
-  };
+  const updateMetrics = useCallback(
+    (level: number | null, peak: number | null) => {
+      setLevelDb(level);
+      setPeakHz(peak);
+    },
+    [],
+  );
 
   const duration = audio.duration ?? engine.durationSeconds;
   const seekValue =
     audio.mode === "file" && duration && duration > 0
       ? Math.min(100, (elapsed / duration) * 100)
       : 0;
+
+  const resetPhysics = () => {
+    setLaunch418(false);
+    setPhysicsEpoch((value) => value + 1);
+  };
 
   const fullscreen = async () => {
     try {
@@ -89,7 +84,7 @@ export default function App() {
         <a className="brand" href="./">
           <span className="brand-icon">▦</span>
           REACTOR
-          <span className="edition">AUDIO LAB / 01</span>
+          <span className="edition">PHYS AUDIO LAB / 01</span>
         </a>
         <span className="top-note">声音，进入堆芯。</span>
         <button className="plain" type="button" onClick={() => void fullscreen()}>
@@ -100,7 +95,7 @@ export default function App() {
       <main>
         <section className="stage">
           <div className="stage-title">
-            <div className="eyebrow">REAL-TIME AUDIO VISUALIZER</div>
+            <div className="eyebrow">REAL-TIME PHYSICS AUDIO VISUALIZER</div>
             <h1>
               声场反应堆<span> / CORE 01</span>
             </h1>
@@ -108,19 +103,27 @@ export default function App() {
 
           <div className="live">
             <i />
-            <span>{audio.playing ? "运行中" : "待机 · 演示预览"}</span>
+            <span>
+              {launch418
+                ? `CH-${LAUNCH_CHANNEL} 已脱离导向`
+                : audio.playing
+                  ? "运行中 · RAPIER PHYSICS"
+                  : "待机 · 物理场在线"}
+            </span>
           </div>
 
-          <ReactorVisualizer
+          <PhysicsReactor
+            key={physicsEpoch}
+            physicsEpoch={physicsEpoch}
             engine={engine}
             sensitivity={sensitivity}
             smoothing={smoothing}
+            launch418={launch418}
             resetViewToken={resetViewToken}
-            onMetrics={updateMetrics}
           />
 
           <div className="axis top">
-            CONTROL ROD ARRAY · {REACTOR_CHANNEL_COUNT} CHANNELS
+            FIXED-LENGTH ROD ARRAY · {ROD_LAYOUT.length} CHANNELS
           </div>
 
           <div className="stage-bottom">
@@ -137,7 +140,7 @@ export default function App() {
           </div>
 
           <div className="scale">
-            <span>振幅</span>
+            <span>提升量</span>
             <div />
             <span>高</span>
             <span>低</span>
@@ -157,14 +160,14 @@ export default function App() {
               <button
                 type="button"
                 className={audio.mode === "demo" ? "selected" : ""}
-                onClick={selectDemo}
+                onClick={() => void engine.selectDemo()}
               >
                 演示信号
               </button>
               <button
                 type="button"
                 className={audio.mode === "mic" ? "selected" : ""}
-                onClick={selectMic}
+                onClick={() => void engine.selectMic()}
               >
                 麦克风
               </button>
@@ -186,7 +189,8 @@ export default function App() {
               accept="audio/*"
               hidden
               onChange={(event) => {
-                handleFile(event.target.files?.[0]);
+                const file = event.target.files?.[0];
+                if (file) void engine.loadFile(file);
                 event.currentTarget.value = "";
               }}
             />
@@ -196,14 +200,16 @@ export default function App() {
               <div>
                 <strong>{audio.trackName}</strong>
                 <small>
-                  {audio.playing ? "控制棒随频谱实时响应" : "点击播放，启动声场"}
+                  {audio.playing
+                    ? "固定长度棒阵列随频谱实时升降"
+                    : "点击播放，启动声场"}
                 </small>
               </div>
               <button
                 type="button"
                 className="play"
                 aria-label={audio.playing ? "暂停" : "播放"}
-                onClick={togglePlay}
+                onClick={() => void engine.toggle()}
               >
                 {audio.playing ? "Ⅱ" : "▶"}
               </button>
@@ -218,7 +224,9 @@ export default function App() {
                 value={seekValue}
                 step="0.1"
                 disabled={audio.mode !== "file"}
-                onChange={(event) => void engine.seek(Number(event.target.value))}
+                onChange={(event) =>
+                  void engine.seek(Number(event.target.value))
+                }
               />
               <div>
                 <span>{formatTime(elapsed)}</span>
@@ -241,7 +249,9 @@ export default function App() {
               max="3"
               value={sensitivity}
               step="0.1"
-              onChange={(event) => setSensitivity(Number(event.target.value))}
+              onChange={(event) =>
+                setSensitivity(Number(event.target.value))
+              }
             />
 
             <div className="slider-title">
@@ -254,7 +264,9 @@ export default function App() {
               min="0"
               max="95"
               value={smoothing}
-              onChange={(event) => setSmoothing(Number(event.target.value))}
+              onChange={(event) =>
+                setSmoothing(Number(event.target.value))
+              }
             />
 
             <div className="slider-title">
@@ -267,7 +279,9 @@ export default function App() {
               min="0"
               max="100"
               value={volume}
-              onChange={(event) => setVolume(Number(event.target.value))}
+              onChange={(event) =>
+                setVolume(Number(event.target.value))
+              }
             />
 
             <div className="slider-title">
@@ -308,7 +322,32 @@ export default function App() {
                 </strong>
               </div>
             </div>
-            <canvas id="spectrum" aria-label="实时频谱" />
+            <SpectrumAnalyzer engine={engine} onMetrics={updateMetrics} />
+          </section>
+
+          <section className="physics-panel">
+            <label className="caption">04 / 物理实验</label>
+            <div className="physics-status">
+              <span>CH-{LAUNCH_CHANNEL}</span>
+              <strong>{launch418 ? "DYNAMIC / DISPLACED" : "GUIDED"}</strong>
+            </div>
+
+            <button
+              className="launch-button"
+              type="button"
+              disabled={launch418}
+              onClick={() => setLaunch418(true)}
+            >
+              {launch418 ? `CH-${LAUNCH_CHANNEL} 已发射` : `发射 CH-${LAUNCH_CHANNEL}`}
+            </button>
+
+            <button
+              className="reset-physics"
+              type="button"
+              onClick={resetPhysics}
+            >
+              重置物理场
+            </button>
           </section>
 
           <p className="message" role="status">
@@ -319,10 +358,10 @@ export default function App() {
 
       <footer>
         <span>
-          <b>◈</b> REACTOR EXPERIMENT
+          <b>◈</b> RBMK PHYS AUDIOVIS
         </span>
-        <span>音乐驱动 · 非真实反应堆模拟</span>
-        <span>WEB AUDIO / LIVE</span>
+        <span>音乐驱动 · 刚体实验 · 非真实反应堆模拟</span>
+        <span>WEB AUDIO / THREE / RAPIER</span>
       </footer>
     </>
   );

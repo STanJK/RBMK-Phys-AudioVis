@@ -1,32 +1,38 @@
 # RBMK-Phys-AudioVis
 
-Physics-first RBMK-inspired audio visualizer.
+RBMK-inspired audio visualizer with a deliberately irreversible rigid-body failure mode.
 
-## Current milestone: React parity baseline
+## Current architecture
 
-Before adding Three.js / Rapier, the project first reproduces the reference visualizer in a clean React + TypeScript architecture:
-
+- React 19 + TypeScript + Vite
 - Web Audio API
-- Built-in demo signal
-- Microphone capture
-- Local audio file import
-- Play / pause / seek
-- Sensitivity, motion smoothing and playback volume controls
-- 709-channel radial Canvas visualizer
+- React Three Fiber / Three.js
+- Rapier 3D via @react-three/rapier
+- GitHub Actions CI
+- GitHub Pages deployment workflow
+
+The React audio/control layer preserves the reference visualizer's behavior:
+
+- built-in demo signal
+- microphone capture
+- local audio file import
+- play / pause / seek
+- sensitivity, smoothing and playback volume controls
 - 48-band spectrum display
-- Input level and peak-frequency readouts
-- Pointer rotation, wheel zoom and view reset
+- input-level and peak-frequency readouts
+- radial frequency mapping: center low -> edge high
 
-The current radial mapping follows the reference behavior:
+The renderer is now a real rigid-body scene:
 
-```text
-core center -> low frequencies
-core edge   -> high frequencies
-```
+- 709 fixed-length rods
+- 708 guided rods are kinematic rigid bodies
+- CH-418 starts guided, then can be released into a dynamic body
+- launch applies linear + angular impulse
+- gravity, friction, CCD and collisions remain active after release
+- the displaced rod can fall across the still-moving guided array
+- physics reset remounts the world
 
-The next milestone replaces the fake-3D Canvas rods with real Three.js geometry and Rapier rigid bodies, while preserving the React audio/control layer.
-
-## Run locally
+## Development
 
 ```bash
 npm install
@@ -35,17 +41,14 @@ npm run dev
 
 ## CI
 
-GitHub Actions runs:
-
 ```bash
-npm install
 npm run typecheck
 npm run build
 ```
 
 ## Reference implementation
 
-The interaction model and substantial portions of the initial Canvas/audio behavior are adapted from the MIT-licensed project:
+The initial control-surface styling and Web Audio behavior were adapted from the MIT-licensed project:
 
 - https://github.com/wzk112/reactor-audio-visualizer
 
