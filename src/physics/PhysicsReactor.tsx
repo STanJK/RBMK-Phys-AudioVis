@@ -15,7 +15,7 @@ import {
   InstancedRigidBodies,
   Physics,
   RigidBody,
-  useRapier,
+  useBeforePhysicsStep,
   type InstancedRigidBodyProps,
   type RapierRigidBody,
 } from "@react-three/rapier";
@@ -216,11 +216,10 @@ function LaunchRod({
 }) {
   const body = useRef<RapierRigidBody | null>(null);
   const height = useRef(0.07);
-  const hasLaunched = useRef(false);
-  const { rapier } = useRapier();
+  const launchApplied = useRef(false);
 
   useFrame(({ clock }, delta) => {
-    if (launch || hasLaunched.current || !body.current) return;
+    if (launch || launchApplied.current || !body.current) return;
 
     const bins = engine.readFrequencyData();
     const state = engine.getState();
@@ -250,55 +249,61 @@ function LaunchRod({
     });
   });
 
-  useEffect(() => {
-    if (!launch || hasLaunched.current || !body.current) return;
+  useBeforePhysicsStep(() => {
+    const rb = body.current;
 
-    hasLaunched.current = true;
+    if (
+      !launch ||
+      launchApplied.current ||
+      !rb ||
+      !rb.isDynamic()
+    ) {
+      return;
+    }
 
-    // Commit the last guided pose before releasing the body. This prevents the
-    // dynamic body from inheriting an old interpolation pose below the core.
-    body.current.setTranslation(
+    launchApplied.current = true;
+
+    // The React wrapper has already switched the body to Dynamic at this
+    // point. Set a deterministic launch velocity instead of applying an
+    // impulse in the same tick as the body-type transition.
+    rb.recomputeMassPropertiesFromColliders();
+    rb.resetForces(true);
+    rb.resetTorques(true);
+    rb.setLinvel(
       {
-        x: rod.x,
-        y: CORE_TOP_Y + height.current - ROD_LENGTH / 2,
-        z: rod.z,
+        x: 1.15,
+        y: 24,
+        z: -0.85,
       },
       true,
     );
-    body.current.setBodyType(
-      rapier.RigidBodyType.Dynamic,
+    rb.setAngvel(
+      {
+        x: 0.9,
+        y: 0.12,
+        z: 1.15,
+      },
       true,
     );
-    body.current.setLinvel({ x: 0, y: 0, z: 0 }, true);
-    body.current.setAngvel({ x: 0, y: 0, z: 0 }, true);
-
-    // Mostly vertical launch; a small lateral impulse and torque makes the rod
-    // tip over on re-entry so it can bridge across neighbouring channels.
-    body.current.applyImpulse(
-      { x: 1.0, y: 78, z: -0.75 },
-      true,
-    );
-    body.current.applyTorqueImpulse(
-      { x: 2.8, y: 0.35, z: 2.2 },
-      true,
-    );
-  }, [launch, rapier]);
+    rb.wakeUp();
+  });
 
   return (
     <RigidBody
       ref={body}
-      type="kinematicPosition"
+      type={launch ? "dynamic" : "kinematicPosition"}
       position={[
         rod.x,
         CORE_TOP_Y + height.current - ROD_LENGTH / 2,
         rod.z,
       ]}
       colliders="cuboid"
+      density={1}
       friction={0.74}
       restitution={0.16}
       linearDamping={0.04}
       angularDamping={0.05}
-      ccd
+      ccd={launch}
       canSleep
     >
       <mesh castShadow receiveShadow>
