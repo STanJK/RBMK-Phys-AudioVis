@@ -1142,6 +1142,9 @@ function GuidedRodField({
     const elapsed = clock.getElapsedTime();
     elapsedSeconds.current = elapsed;
     const safeDelta = Math.max(delta, 1 / 240);
+    const az5HandoffPending =
+      az5EjectAt.current !== null &&
+      elapsed >= az5EjectAt.current;
 
     enforceRodPairCollisionBudget(bodies);
     enforceFarCollisionBudget(bodies, elapsed);
@@ -1292,6 +1295,17 @@ function GuidedRodField({
       }
 
       if (detachedIndices.current.has(index)) continue;
+
+      // At the AZ5 handoff boundary, do not queue another kinematic
+      // target. Preserve the last physical pose exactly until the
+      // before-physics callback changes the body to Dynamic.
+      if (
+        az5HandoffPending &&
+        thermal?.phase === "heating" &&
+        !everFullyEjectedIndices.current.has(index)
+      ) {
+        continue;
+      }
 
       const baseResponse = sampleRodBaseResponse(
         engine,
