@@ -21,6 +21,10 @@ export const BILIBILI_PRESETS: BilibiliPreset[] = [
     label: "低皮质醇",
     bvid: "BV1r9PhzHEai",
   },
+  {
+    label: "南蛮大布",
+    bvid: "BV1MjmwBTEJ3",
+  },
 ];
 
 export function presetInput(preset: BilibiliPreset): string {
