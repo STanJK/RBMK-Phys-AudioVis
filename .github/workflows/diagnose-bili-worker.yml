@@ -1,0 +1,26 @@
+name: diagnose-bili-worker
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/diagnose-bili-worker.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe live worker resolve
+        shell: bash
+        run: |
+          set -u
+          URL="https://rbmk-bili-audio-proxy.stanjk24.workers.dev/resolve?bvid=BV1VGYR6bECg&p=1"
+          BODY_FILE="$(mktemp)"
+          STATUS="$(curl --silent --show-error --output "$BODY_FILE" --write-out '%{http_code}' "$URL" || true)"
+          echo "HTTP $STATUS"
+          cat "$BODY_FILE"
+          echo
+          rm -f "$BODY_FILE"
