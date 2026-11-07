@@ -1,9 +1,6 @@
 import { useState } from "react";
 import type { AudioEngine } from "../audio/AudioEngine";
-import {
-  resolveBilibiliAudio,
-  type ResolvedBilibiliAudio,
-} from "./api";
+import { resolveBilibiliAudio } from "./api";
 import { parseBilibiliInput } from "./parse";
 import { BILIBILI_PRESETS, presetInput } from "./presets";
 
@@ -12,9 +9,7 @@ interface BilibiliSourceProps {
 }
 
 export function BilibiliSource({ engine }: BilibiliSourceProps) {
-  const [input, setInput] = useState("");
-  const [resolved, setResolved] = useState<ResolvedBilibiliAudio | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [input, setInput] = useState("");  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = async (rawInput = input) => {
@@ -24,8 +19,6 @@ export function BilibiliSource({ engine }: BilibiliSourceProps) {
 
       const ref = parseBilibiliInput(rawInput);
       const result = await resolveBilibiliAudio(ref);
-      setResolved(result);
-
       const label =
         result.part && result.part !== result.title
           ? `${result.title} / ${result.part}`
@@ -37,9 +30,7 @@ export function BilibiliSource({ engine }: BilibiliSourceProps) {
         duration: result.duration,
         autoplay: true,
       });
-    } catch (cause) {
-      setResolved(null);
-      setError(cause instanceof Error ? cause.message : "无法解析 B 站音频");
+    } catch (cause) {      setError(cause instanceof Error ? cause.message : "无法解析 B 站音频");
     } finally {
       setLoading(false);
     }
@@ -88,24 +79,6 @@ export function BilibiliSource({ engine }: BilibiliSourceProps) {
 
       {error && <p className="bili-error">{error}</p>}
 
-      {resolved && (
-        <div className="bili-meta">
-          <strong>{resolved.title}</strong>
-          <span>
-            P{resolved.page} · {resolved.part} · {resolved.strategy}
-          </span>
-          <span>
-            RESOLVER: SQUIDTAIL BILI2VRC
-            {resolved.quality ? ` · ${resolved.quality}` : ""}
-          </span>
-          <span>MEDIA: WORKER STREAM ONLY</span>
-        </div>
-      )}
-
-      <p className="bili-help">
-        B 站解析只通过内置 Worker 调用 Squidtail Bili2VRC API；
-        浏览器不直连 Bilibili API 或媒体 CDN，播放统一经过 Worker /stream。
-      </p>
     </div>
   );
 }

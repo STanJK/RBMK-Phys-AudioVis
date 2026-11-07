@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AudioEngine, type AudioEngineState } from "./audio/AudioEngine";
 import { BilibiliSource } from "./bilibili/BilibiliSource";
 import { PhysicsReactor } from "./physics/PhysicsReactor";
-import { ROD_LAYOUT, ROD_LENGTH } from "./reactor/layout";
+import { ROD_LAYOUT } from "./reactor/layout";
 import { SpectrumAnalyzer } from "./visualizer/SpectrumAnalyzer";
 
 function formatTime(seconds: number) {
@@ -27,10 +27,7 @@ export default function App() {
   const [elapsed, setElapsed] = useState(0);
   const [resetViewToken, setResetViewToken] = useState(0);
   const [az5TriggerToken, setAz5TriggerToken] = useState(0);
-  const [randomEjectionsEnabled, setRandomEjectionsEnabled] = useState(true);
-  const [randomEjectionCount, setRandomEjectionCount] = useState(0);
-  const [lastRandomEjection, setLastRandomEjection] = useState<number | null>(null);
-  const [physicsEpoch, setPhysicsEpoch] = useState(0);
+  const [randomEjectionsEnabled, setRandomEjectionsEnabled] = useState(true);  const [physicsEpoch, setPhysicsEpoch] = useState(0);
   const [showBilibili, setShowBilibili] = useState(true);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -66,10 +63,7 @@ export default function App() {
       : 0;
 
   const resetPhysics = () => {
-    setAz5TriggerToken(0);
-    setRandomEjectionCount(0);
-    setLastRandomEjection(null);
-    setPhysicsEpoch((value) => value + 1);
+    setAz5TriggerToken(0);    setPhysicsEpoch((value) => value + 1);
   };
 
   const fullscreen = async () => {
@@ -123,12 +117,7 @@ export default function App() {
             sensitivity={sensitivity}
             smoothing={smoothing}
             randomEjectionsEnabled={randomEjectionsEnabled}
-            az5TriggerToken={az5TriggerToken}
-            onRandomEjection={(channel) => {
-              setRandomEjectionCount((value) => value + 1);
-              setLastRandomEjection(channel);
-            }}
-            resetViewToken={resetViewToken}
+            az5TriggerToken={az5TriggerToken}            resetViewToken={resetViewToken}
           />
 
           <div className="axis top">
@@ -368,19 +357,6 @@ export default function App() {
 
           <section className="physics-panel">
             <label className="caption">04 / 物理实验</label>
-            <div className="physics-status">
-              <span>AIR WALL</span>
-              <strong>
-                {az5TriggerToken > 0
-                  ? "UPPER WALL BYPASSED / LOWER WALL ACTIVE"
-                  : "2× ROD LENGTH / LOWER WALL ACTIVE"}
-              </strong>
-            </div>
-
-            <div className="physics-status">
-              <span>HEIGHT LIMIT</span>
-              <strong>5× ROD LENGTH / {(ROD_LENGTH * 5).toFixed(1)} UNITS</strong>
-            </div>
 
             <label className="accident-toggle">
               <input
@@ -390,22 +366,8 @@ export default function App() {
                   setRandomEjectionsEnabled(event.target.checked)
                 }
               />
-              <span>
-                <strong>随机超调事故</strong>
-                <small>
-                  每 3 秒判定 · 选中后 3 秒绿→红预热 · VY ×10
-                </small>
-              </span>
+              <strong>随机超调事故</strong>
             </label>
-
-            <div className="physics-status">
-              <span>RANDOM EJECTION</span>
-              <strong>
-                {randomEjectionCount === 0
-                  ? "ARMED / NONE"
-                  : `${randomEjectionCount} TOTAL · LAST CH-${lastRandomEjection}`}
-              </strong>
-            </div>
 
             <button
               className="az5-button"

@@ -64,9 +64,7 @@ interface PhysicsReactorProps {
   sensitivity: number;
   smoothing: number;
   randomEjectionsEnabled: boolean;
-  az5TriggerToken: number;
-  onRandomEjection?: (channel: number) => void;
-  resetViewToken: number;
+  az5TriggerToken: number;  resetViewToken: number;
   physicsEpoch: number;
 }
 
@@ -374,17 +372,13 @@ function GuidedRodField({
   sensitivity,
   smoothing,
   randomEjectionsEnabled,
-  az5TriggerToken,
-  onRandomEjection,
-}: Pick<
+  az5TriggerToken,}: Pick<
   ReactorSceneProps,
   | "engine"
   | "sensitivity"
   | "smoothing"
   | "randomEjectionsEnabled"
-  | "az5TriggerToken"
-  | "onRandomEjection"
->) {
+  | "az5TriggerToken">) {
   const rigidBodies = useRef<RapierRigidBody[]>([]);
   const mesh = useRef<InstancedMesh | null>(null);
   const heights = useRef<Float32Array>(
@@ -864,9 +858,7 @@ function GuidedRodField({
     thermal.ejectedAt = elapsedSeconds.current;
     thermal.launchY = launchY;
 
-    rb.wakeUp();
-    onRandomEjection?.(rod.channel);
-  });
+    rb.wakeUp();  });
 
   return (
     <InstancedRigidBodies
@@ -932,9 +924,7 @@ function ReactorScene({
             sensitivity={sensitivity}
             smoothing={smoothing}
             randomEjectionsEnabled={randomEjectionsEnabled}
-            az5TriggerToken={az5TriggerToken}
-            onRandomEjection={onRandomEjection}
-          />
+            az5TriggerToken={az5TriggerToken}          />
         </Physics>
       </Suspense>
 
