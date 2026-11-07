@@ -869,7 +869,7 @@ function GuidedRodField({
     new Float32Array(guidedRods.length),
   );
   const detachedIndices = useRef<Set<number>>(new Set());
-  const everEjectedIndices = useRef<Set<number>>(new Set());
+  const everFullyEjectedIndices = useRef<Set<number>>(new Set());
   const surfaceClearedIndices = useRef<Set<number>>(new Set());
   const rodPairCollisionDisabledIndices = useRef<Set<number>>(new Set());
   const collisionDisabledIndices = useRef<Set<number>>(new Set());
@@ -927,7 +927,7 @@ function GuidedRodField({
     az5EjectAt.current = ejectAt;
 
     for (let index = 0; index < guidedRods.length; index += 1) {
-      if (everEjectedIndices.current.has(index)) continue;
+      if (everFullyEjectedIndices.current.has(index)) continue;
 
       thermalStates.current[index] = {
         phase: "heating",
@@ -1161,6 +1161,7 @@ function GuidedRodField({
 
         if (bottomY >= CORE_TOP_Y + 0.01) {
           surfaceClearedIndices.current.add(index);
+          everFullyEjectedIndices.current.add(index);
 
           if (!collisionDisabledIndices.current.has(index)) {
             enableReturnFloorCollision(index, rb);
@@ -1453,7 +1454,7 @@ function GuidedRodField({
       }
 
       if (
-        !everEjectedIndices.current.has(index) &&
+        !everFullyEjectedIndices.current.has(index) &&
         thermalStates.current[index] !== null
       ) {
         launchIndices.push(index);
@@ -1500,7 +1501,6 @@ function GuidedRodField({
       }
 
       detachedIndices.current.add(index);
-      everEjectedIndices.current.add(index);
 
       if (!pairCollisionAllowed.has(index)) {
         rodPairCollisionDisabledIndices.current.add(index);
@@ -1568,7 +1568,6 @@ function GuidedRodField({
       ROD_LENGTH / 2;
 
     detachedIndices.current.add(index);
-    everEjectedIndices.current.add(index);
 
     rb.setTranslation(
       {
