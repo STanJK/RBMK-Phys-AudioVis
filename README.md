@@ -16,8 +16,7 @@ The React audio/control layer preserves the reference visualizer's behavior:
 - built-in demo signal
 - microphone capture
 - local audio file import
-- Bilibili URL / BV input through a thin Cloudflare Worker resolver/proxy
-- direct HTMLAudioElement -> Web Audio analyser path for Bilibili audio
+- Bilibili URL / BV input through a thin Cloudflare Worker adapter
 - play / pause / seek
 - sensitivity, smoothing and playback volume controls
 - 48-band spectrum display
@@ -63,27 +62,25 @@ See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 This is an audiovisual toy, not a reactor simulation.
 
-
 ### Bilibili source
 
-GitHub Pages remains static. Bilibili resolution is browser-first:
+GitHub Pages stays static. Bilibili resolution has a single production path:
 
-1. the page directly tries the public Bilibili `view -> playurl` APIs;
-2. it first attempts the returned CDN audio URL directly;
-3. if browser API access is blocked by CORS/HTTP 412, an optional Cloudflare Worker can resolve the same request;
-4. if the direct CDN media request fails, the same Worker `/stream` endpoint is used as the media fallback with Range/CORS support.
+1. the browser sends BV + page to the embedded Cloudflare Worker;
+2. the Worker calls the Squidtail Bili2VRC parsing API;
+3. Squidtail returns a playable MP4 URL;
+4. the frontend first uses that media URL and can fall back to the Worker's restricted `/stream` proxy for Range/CORS handling.
 
-The browser plays the chosen stream through an `HTMLAudioElement`, routes it into the existing Web Audio analyser, and applies the normal playback-volume slider. No screen/tab capture is used.
+The project no longer calls Bilibili metadata, WBI, pagelist, or playurl APIs directly from either the browser or the Worker.
 
-The Worker is therefore optional when both direct API access and direct CDN CORS work in the current browser/network, and acts as a fallback otherwise. Its URL is stored in localStorage so changing the endpoint does not require a Pages rebuild.
-
-
-### Production Worker
-
-The production fallback endpoint is embedded by default:
+Production resolver:
 
 ```
 https://rbmk-bili-audio-proxy.stanjk24.workers.dev
 ```
 
-The Bilibili panel still permits a local override for development/testing.
+Upstream parser:
+
+```
+https://api.squidtail.com/bili2vrc/parse/
+```

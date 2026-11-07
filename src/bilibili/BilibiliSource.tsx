@@ -1,9 +1,7 @@
 import { useState } from "react";
 import type { AudioEngine } from "../audio/AudioEngine";
 import {
-  getConfiguredWorkerUrl,
   resolveBilibiliAudio,
-  saveWorkerUrl,
   type ResolvedBilibiliAudio,
 } from "./api";
 import { parseBilibiliInput } from "./parse";
@@ -15,7 +13,6 @@ interface BilibiliSourceProps {
 
 export function BilibiliSource({ engine }: BilibiliSourceProps) {
   const [input, setInput] = useState("");
-  const [workerUrl, setWorkerUrl] = useState(getConfiguredWorkerUrl);
   const [resolved, setResolved] = useState<ResolvedBilibiliAudio | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -26,10 +23,7 @@ export function BilibiliSource({ engine }: BilibiliSourceProps) {
       setError(null);
 
       const ref = parseBilibiliInput(rawInput);
-      const savedWorkerUrl = saveWorkerUrl(workerUrl);
-      setWorkerUrl(savedWorkerUrl);
-
-      const result = await resolveBilibiliAudio(savedWorkerUrl, ref);
+      const result = await resolveBilibiliAudio(ref);
       setResolved(result);
 
       const label =
@@ -52,20 +46,6 @@ export function BilibiliSource({ engine }: BilibiliSourceProps) {
 
   return (
     <div className="bilibili-source">
-      <div className="worker-config">
-        <label htmlFor="bili-worker-url">Worker fallback URL（默认已内置）</label>
-        <input
-          id="bili-worker-url"
-          className="bili-input"
-          type="url"
-          value={workerUrl}
-          spellCheck={false}
-          placeholder="https://rbmk-bili-audio-proxy.stanjk24.workers.dev"
-          onChange={(event) => setWorkerUrl(event.target.value)}
-          onBlur={() => setWorkerUrl(saveWorkerUrl(workerUrl))}
-        />
-      </div>
-
       <div className="bili-input-row">
         <input
           className="bili-input"
@@ -113,30 +93,23 @@ export function BilibiliSource({ engine }: BilibiliSourceProps) {
         <div className="bili-meta">
           <strong>{resolved.title}</strong>
           <span>
-            P{resolved.page} · {resolved.part || "单P"} · {resolved.strategy}
+            P{resolved.page} · {resolved.part} · {resolved.strategy}
           </span>
           <span>
-            {resolved.owner ? `UP: ${resolved.owner}` : resolved.bvid}
-            {resolved.bandwidth
-              ? ` · ${Math.round(resolved.bandwidth / 1000)} kbps`
-              : ""}
+            RESOLVER: SQUIDTAIL BILI2VRC
+            {resolved.quality ? ` · ${resolved.quality}` : ""}
           </span>
           <span>
-            RESOLVER: {resolved.resolver === "browser" ? "BROWSER / LOCAL" : "WORKER FALLBACK"}
-            {resolved.proxyUrl ? " · STREAM FALLBACK READY" : " · DIRECT ONLY"}
+            {resolved.proxyUrl
+              ? "MEDIA: DIRECT + WORKER STREAM FALLBACK"
+              : "MEDIA: DIRECT"}
           </span>
-          {resolved.localError && (
-            <span title={resolved.localError}>
-              LOCAL FAIL: {resolved.localError}
-            </span>
-          )}
         </div>
       )}
 
       <p className="bili-help">
-        默认先由当前浏览器直接解析公开 B 站 API，并优先尝试 CDN 直连。
-        如果遇到 CORS、HTTP 412 或 CDN 防盗链，且配置了 Worker，则自动退到
-        Worker /resolve 或 /stream。Worker 不使用账号 Cookie。
+        B 站解析只通过内置 Worker 调用 Squidtail Bili2VRC API。
+        浏览器和 Worker 均不再直接调用 Bilibili metadata / WBI 接口。
       </p>
     </div>
   );
