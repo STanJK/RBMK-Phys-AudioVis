@@ -15,7 +15,7 @@ export const RANDOM_EJECTION_RECOVERY_COOL_SECONDS = 5;
 export const RANDOM_EJECTION_RESPONSE_MIN = 0.4;
 export const RANDOM_EJECTION_RESPONSE_MAX = 0.7;
 export const RANDOM_EJECTION_UPWARD_MULTIPLIER = 10;
-export const AZ5_RAMP_SECONDS = 8;
+export const AZ5_RAMP_SECONDS = 5;
 export const AZ5_MIN_LAUNCH_SPEED = 18;
 
 export interface RodSpec {

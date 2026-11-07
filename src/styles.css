@@ -522,7 +522,6 @@ input[type="range"]:disabled {
 }
 
 .launch-button,
-.az5-button,
 .reset-physics {
   width: 100%;
   min-height: 40px;
@@ -539,14 +538,29 @@ input[type="range"]:disabled {
 }
 
 .az5-button {
-  border-color: #a94336;
-  background: #7b2f28;
-  color: #ffe3dc;
+  display: block;
+  width: 120px;
+  height: 120px;
+  margin: 18px auto 8px;
+  padding: 0;
+  border: 2px solid #d45a4c;
+  border-radius: 50%;
+  background: #a32119;
+  color: #fff4f1;
+  font: 700 22px monospace;
+  letter-spacing: 0.08em;
+  box-shadow:
+    0 0 0 6px #2b1614,
+    0 0 24px #a321194d;
 }
 
 .az5-button:hover {
-  background: #94372e;
-  border-color: #c65345;
+  background: #be2d23;
+  border-color: #ef7769;
+}
+
+.az5-button:active {
+  transform: translateY(1px) scale(0.985);
 }
 
 .launch-button:disabled {
