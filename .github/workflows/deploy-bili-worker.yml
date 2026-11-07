@@ -43,8 +43,15 @@ jobs:
           echo "::endgroup::"
 
           echo "::group::resolve smoke"
-          curl --fail-with-body --silent --show-error             "$DEPLOYMENT_URL/resolve?bvid=BV1VGYR6bECg&p=1"
-          echo
+          RESOLVE_JSON="$(curl --fail-with-body --silent --show-error "$DEPLOYMENT_URL/resolve?bvid=BV1VGYR6bECg&p=1")"
+          echo "$RESOLVE_JSON"
+          PROXY_URL="$(printf '%s' "$RESOLVE_JSON" | jq -r '.proxyUrl // empty')"
+          test -n "$PROXY_URL"
+          echo "::endgroup::"
+
+          echo "::group::stream smoke"
+          curl --fail-with-body --silent --show-error             --range 0-0             --output /dev/null             "$PROXY_URL"
+          echo "stream range request ok"
           echo "::endgroup::"
 
       - name: Publish deployment summary
@@ -55,8 +62,8 @@ jobs:
           {
             echo "## Bilibili Worker deployed"
             echo
-            echo "- URL: `$DEPLOYMENT_URL`"
-            echo "- Health: `$DEPLOYMENT_URL/health`"
+            echo "- URL: $DEPLOYMENT_URL"
+            echo "- Health: $DEPLOYMENT_URL/health"
             echo
-            echo "The production frontend already embeds this Worker URL as its default fallback."
+            echo "The production frontend embeds this Worker as its sole Bilibili resolver."
           } >> "$GITHUB_STEP_SUMMARY"
