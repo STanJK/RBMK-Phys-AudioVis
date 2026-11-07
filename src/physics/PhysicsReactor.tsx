@@ -48,11 +48,7 @@ const guidedRods = ROD_LAYOUT.filter(
 );
 const launchRod = ROD_LAYOUT.find(
   (rod) => rod.channel === LAUNCH_CHANNEL,
-);
-
-if (!launchRod) {
-  throw new Error("Launch channel 418 is missing from reactor layout");
-}
+)!;
 
 function CameraReset({ token }: { token: number }) {
   const { camera } = useThree();
