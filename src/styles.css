@@ -1,0 +1,150 @@
+:root {
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  color: #e6eadf;
+  background: #090c0a;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-width: 320px;
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+}
+
+button {
+  font: inherit;
+}
+
+.app-shell {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background:
+    radial-gradient(circle at 25% 15%, rgba(123, 137, 105, 0.14), transparent 32%),
+    #090c0a;
+}
+
+.viewport {
+  position: absolute;
+  inset: 0;
+}
+
+.hud {
+  position: absolute;
+  z-index: 10;
+  top: 22px;
+  left: 22px;
+  width: min(390px, calc(100vw - 44px));
+  padding: 18px;
+  border: 1px solid rgba(177, 188, 158, 0.28);
+  background: rgba(8, 11, 9, 0.84);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 18px 70px rgba(0, 0, 0, 0.34);
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  color: #aab394;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.13em;
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(20px, 3vw, 30px);
+  font-weight: 520;
+  letter-spacing: -0.035em;
+}
+
+.subtle {
+  margin: 10px 0 0;
+  color: #98a08e;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.readout {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  margin: 16px 0;
+  background: rgba(171, 185, 151, 0.14);
+}
+
+.readout div {
+  min-width: 0;
+  padding: 10px;
+  background: #0c100d;
+}
+
+.readout dt {
+  margin-bottom: 6px;
+  color: #747d6c;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.readout dd {
+  margin: 0;
+  overflow: hidden;
+  color: #d6ddca;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.launch {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid #a2684e;
+  background: #6d3f2f;
+  color: #fff1e8;
+  cursor: pointer;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+
+.launch:hover:not(:disabled) {
+  background: #86503b;
+}
+
+.launch:disabled {
+  border-color: #4a5145;
+  background: #252a24;
+  color: #7f8778;
+  cursor: default;
+}
+
+@media (max-width: 700px) {
+  .hud {
+    top: 12px;
+    left: 12px;
+    width: calc(100vw - 24px);
+  }
+
+  .readout {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .readout div:last-child {
+    grid-column: 1 / -1;
+  }
+}
