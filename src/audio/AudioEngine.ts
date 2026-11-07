@@ -42,11 +42,11 @@ export class AudioEngine {
   private volumePercent = 40;
 
   private state: AudioEngineState = {
-    mode: "demo",
+    mode: "bilibili",
     playing: false,
-    trackName: "REACTOR / 内置信号",
+    trackName: "BILIBILI / 等待解析",
     duration: null,
-    message: "音频仅在本机处理，不会上传。",
+    message: "输入 B 站链接；解析通过内置 Squidtail Worker 完成。",
   };
 
   readonly bins = new Uint8Array(1024);
@@ -156,7 +156,7 @@ export class AudioEngine {
       mode: "bilibili",
       trackName: "BILIBILI / 等待解析",
       duration: null,
-      message: "先由浏览器本地解析 B 站公开 API；失败时再使用 Worker fallback。",
+      message: "输入 B 站链接；解析通过内置 Squidtail Worker 完成。",
     });
   }
 

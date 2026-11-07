@@ -2,10 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AudioEngine, type AudioEngineState } from "./audio/AudioEngine";
 import { BilibiliSource } from "./bilibili/BilibiliSource";
 import { PhysicsReactor } from "./physics/PhysicsReactor";
-import {
-  LAUNCH_CHANNEL,
-  ROD_LAYOUT,
-} from "./reactor/layout";
+import { ROD_LAYOUT, ROD_LENGTH } from "./reactor/layout";
 import { SpectrumAnalyzer } from "./visualizer/SpectrumAnalyzer";
 
 function formatTime(seconds: number) {
@@ -29,12 +26,11 @@ export default function App() {
   const [peakHz, setPeakHz] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [resetViewToken, setResetViewToken] = useState(0);
-  const [launch418, setLaunch418] = useState(false);
-  const [randomEjectionsEnabled, setRandomEjectionsEnabled] = useState(false);
+  const [randomEjectionsEnabled, setRandomEjectionsEnabled] = useState(true);
   const [randomEjectionCount, setRandomEjectionCount] = useState(0);
   const [lastRandomEjection, setLastRandomEjection] = useState<number | null>(null);
   const [physicsEpoch, setPhysicsEpoch] = useState(0);
-  const [showBilibili, setShowBilibili] = useState(false);
+  const [showBilibili, setShowBilibili] = useState(true);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => engine.subscribe(setAudio), [engine]);
@@ -69,7 +65,6 @@ export default function App() {
       : 0;
 
   const resetPhysics = () => {
-    setLaunch418(false);
     setRandomEjectionCount(0);
     setLastRandomEjection(null);
     setPhysicsEpoch((value) => value + 1);
@@ -113,11 +108,9 @@ export default function App() {
           <div className="live">
             <i />
             <span>
-              {launch418
-                ? `CH-${LAUNCH_CHANNEL} 已脱离导向`
-                : audio.playing
-                  ? "运行中 · RAPIER PHYSICS"
-                  : "待机 · 物理场在线"}
+              {audio.playing
+                ? "运行中 · RAPIER PHYSICS"
+                : "待机 · 物理场在线"}
             </span>
           </div>
 
@@ -127,7 +120,6 @@ export default function App() {
             engine={engine}
             sensitivity={sensitivity}
             smoothing={smoothing}
-            launch418={launch418}
             randomEjectionsEnabled={randomEjectionsEnabled}
             onRandomEjection={(channel) => {
               setRandomEjectionCount((value) => value + 1);
@@ -173,6 +165,16 @@ export default function App() {
             <div className="source-tabs">
               <button
                 type="button"
+                className={showBilibili ? "selected" : ""}
+                onClick={() => {
+                  setShowBilibili(true);
+                  engine.selectBilibiliIdle();
+                }}
+              >
+                B站
+              </button>
+              <button
+                type="button"
                 className={!showBilibili && audio.mode === "demo" ? "selected" : ""}
                 onClick={() => {
                   setShowBilibili(false);
@@ -190,16 +192,6 @@ export default function App() {
                 }}
               >
                 麦克风
-              </button>
-              <button
-                type="button"
-                className={showBilibili ? "selected" : ""}
-                onClick={() => {
-                  setShowBilibili(true);
-                  engine.selectBilibiliIdle();
-                }}
-              >
-                B站
               </button>
             </div>
 
@@ -374,13 +366,13 @@ export default function App() {
           <section className="physics-panel">
             <label className="caption">04 / 物理实验</label>
             <div className="physics-status">
-              <span>CH-{LAUNCH_CHANNEL}</span>
-              <strong>{launch418 ? "DYNAMIC / DISPLACED" : "GUIDED"}</strong>
+              <span>AIR WALL</span>
+              <strong>2× ROD LENGTH / OPEN TOP</strong>
             </div>
 
             <div className="physics-status">
-              <span>AIR WALL</span>
-              <strong>2× ROD LENGTH / OPEN TOP</strong>
+              <span>HEIGHT LIMIT</span>
+              <strong>5× ROD LENGTH / 29.0 UNITS</strong>
             </div>
 
             <label className="accident-toggle">
@@ -394,7 +386,7 @@ export default function App() {
               <span>
                 <strong>随机超调事故</strong>
                 <small>
-                  每 3 秒 · 全局响应 40–70% · 上行棒随机脱离 · VY ×10
+                  每 3 秒判定 · 选中后 3 秒绿→红预热 · VY ×10
                 </small>
               </span>
             </label>
@@ -407,15 +399,6 @@ export default function App() {
                   : `${randomEjectionCount} TOTAL · LAST CH-${lastRandomEjection}`}
               </strong>
             </div>
-
-            <button
-              className="launch-button"
-              type="button"
-              disabled={launch418}
-              onClick={() => setLaunch418(true)}
-            >
-              {launch418 ? `CH-${LAUNCH_CHANNEL} 已发射` : `发射 CH-${LAUNCH_CHANNEL}`}
-            </button>
 
             <button
               className="reset-physics"

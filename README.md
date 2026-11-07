@@ -26,13 +26,13 @@ The React audio/control layer preserves the reference visualizer's behavior:
 The renderer is now a real rigid-body scene:
 
 - 709 fixed-length rods
-- 708 guided rods are kinematic rigid bodies
-- CH-418 starts guided, then can be released into a dynamic body
-- launch applies linear + angular impulse
+- all 709 rods begin as guided kinematic rigid bodies
 - gravity, friction, CCD and collisions remain active after release
 - the displaced rod can fall across the still-moving guided array
-- an invisible cylindrical containment wall rises two rod lengths above the core ring and is open at the top
-- optional random overdrive mode checks every 3 seconds for guided rods whose unscaled spectral response is within 40%-70% of the global theoretical response ceiling (defined using the 3.0× maximum sensitivity), requires the rod to be moving upward, releases one at random, and multiplies its instantaneous upward velocity by 10
+- an invisible cylindrical containment wall rises two rod lengths above the core ring
+- a fixed collision plate sits five rod lengths above the core and knocks ejected rods back down
+- random overdrive is enabled by default; every 3 seconds it selects an upward-moving 40%-70% global-response rod, heats it from green to red for 3 seconds, then ejects it at 10× its precomputed upward velocity
+- ejections predicted to rise no more than one rod length remain vertical, return to their original channel, and cool back to green over 5 seconds; stronger ejections stay red for 15 seconds and then cool linearly to gray
 - released random rods remain dynamic and are never auto-cleaned until physics reset
 - physics reset remounts the world
 

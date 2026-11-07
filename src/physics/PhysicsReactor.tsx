@@ -20,6 +20,7 @@ import {
   type InstancedRigidBodyProps,
   type RapierRigidBody,
 } from "@react-three/rapier";
+import { Color, type InstancedMesh } from "three";
 import type { AudioEngine } from "../audio/AudioEngine";
 import {
   MAX_SENSITIVITY,
@@ -31,23 +32,25 @@ import {
   CONTAINMENT_WALL_HEIGHT,
   CONTAINMENT_WALL_RADIUS,
   CORE_TOP_Y,
-  LAUNCH_CHANNEL,
+  HEIGHT_LIMIT_Y,
   MAX_GUIDED_PROTRUSION,
+  RANDOM_EJECTION_COOL_DELAY_SECONDS,
+  RANDOM_EJECTION_COOL_DURATION_SECONDS,
+  RANDOM_EJECTION_HEAT_SECONDS,
   RANDOM_EJECTION_INTERVAL_SECONDS,
+  RANDOM_EJECTION_RECOVERY_COOL_SECONDS,
   RANDOM_EJECTION_RESPONSE_MAX,
   RANDOM_EJECTION_RESPONSE_MIN,
   RANDOM_EJECTION_UPWARD_MULTIPLIER,
   ROD_LAYOUT,
   ROD_LENGTH,
   ROD_WIDTH,
-  type RodSpec,
 } from "../reactor/layout";
 
 interface PhysicsReactorProps {
   engine: AudioEngine;
   sensitivity: number;
   smoothing: number;
-  launch418: boolean;
   randomEjectionsEnabled: boolean;
   onRandomEjection?: (channel: number) => void;
   resetViewToken: number;
@@ -56,15 +59,29 @@ interface PhysicsReactorProps {
 
 interface ReactorSceneProps extends Omit<PhysicsReactorProps, "physicsEpoch"> {}
 
-const guidedRods = ROD_LAYOUT.filter(
-  (rod) => rod.channel !== LAUNCH_CHANNEL,
-);
-const launchRod = ROD_LAYOUT.find(
-  (rod) => rod.channel === LAUNCH_CHANNEL,
-)!;
+interface RodThermalState {
+  phase: "heating" | "ejected" | "recovering";
+  selectedAt: number;
+  ejectAt: number;
+  ejectedAt: number | null;
+  landedAt: number | null;
+  launchY: number | null;
+  launchSpeed: number;
+  predictedRise: number;
+  recoverable: boolean;
+}
+
+const guidedRods = ROD_LAYOUT;
 
 const WALL_SEGMENTS = 96;
 const WALL_THICKNESS = 0.28;
+const GRAVITY = 9.81;
+const HEIGHT_LIMIT_HALF_SIZE = 18.4;
+const HEIGHT_LIMIT_HALF_THICKNESS = 0.16;
+
+const ROD_GREEN = new Color("#82956f");
+const ROD_HOT = new Color("#d24f43");
+const ROD_COLD_GRAY = new Color("#737876");
 
 function CameraReset({ token }: { token: number }) {
   const { camera } = useThree();
@@ -125,13 +142,46 @@ function ContainmentWall() {
   );
 }
 
+function HeightLimitPlate() {
+  return (
+    <>
+      <mesh position={[0, HEIGHT_LIMIT_Y, 0]}>
+        <boxGeometry
+          args={[
+            HEIGHT_LIMIT_HALF_SIZE * 2,
+            HEIGHT_LIMIT_HALF_THICKNESS * 2,
+            HEIGHT_LIMIT_HALF_SIZE * 2,
+          ]}
+        />
+        <meshStandardMaterial
+          color="#8e9790"
+          transparent
+          opacity={0.16}
+          roughness={0.78}
+          metalness={0.22}
+          depthWrite={false}
+        />
+      </mesh>
+
+      <RigidBody type="fixed" colliders={false}>
+        <CuboidCollider
+          args={[
+            HEIGHT_LIMIT_HALF_SIZE,
+            HEIGHT_LIMIT_HALF_THICKNESS,
+            HEIGHT_LIMIT_HALF_SIZE,
+          ]}
+          position={[0, HEIGHT_LIMIT_Y, 0]}
+          friction={0.72}
+          restitution={0.22}
+        />
+      </RigidBody>
+    </>
+  );
+}
+
 function CoreBase() {
   return (
     <>
-      {/*
-        y=0 is the core top plane. The plate is visual only so guided rods can
-        remain inserted below it without starting inside a giant floor collider.
-      */}
       <mesh receiveShadow position={[0, CORE_TOP_Y - 0.25, 0]}>
         <cylinderGeometry args={[16.9, 16.9, 0.5, 96]} />
         <meshStandardMaterial
@@ -155,8 +205,8 @@ function CoreBase() {
       </mesh>
 
       <ContainmentWall />
+      <HeightLimitPlate />
 
-      {/* Catch anything that falls completely through the channel field. */}
       <RigidBody type="fixed" colliders={false}>
         <CuboidCollider
           args={[18, 0.25, 18]}
@@ -184,6 +234,7 @@ function GuidedRodField({
   | "onRandomEjection"
 >) {
   const rigidBodies = useRef<RapierRigidBody[]>([]);
+  const mesh = useRef<InstancedMesh | null>(null);
   const heights = useRef<Float32Array>(
     new Float32Array(guidedRods.length).fill(0.07),
   );
@@ -194,8 +245,13 @@ function GuidedRodField({
     new Float32Array(guidedRods.length),
   );
   const detachedIndices = useRef<Set<number>>(new Set());
+  const thermalStates = useRef<Array<RodThermalState | null>>(
+    Array.from({ length: guidedRods.length }, () => null),
+  );
   const pendingEjection = useRef<number | null>(null);
   const nextRandomEjectionAt = useRef<number | null>(null);
+  const elapsedSeconds = useRef(0);
+  const scratchColor = useMemo(() => new Color(), []);
   const { rapier } = useRapier();
 
   const instances = useMemo<InstancedRigidBodyProps[]>(
@@ -213,6 +269,15 @@ function GuidedRodField({
 
   useEffect(() => {
     nextRandomEjectionAt.current = null;
+
+    if (!randomEjectionsEnabled && pendingEjection.current !== null) {
+      const index = pendingEjection.current;
+      const thermal = thermalStates.current[index];
+      if (thermal?.phase === "heating") {
+        thermalStates.current[index] = null;
+      }
+      pendingEjection.current = null;
+    }
   }, [randomEjectionsEnabled]);
 
   useFrame(({ clock }, delta) => {
@@ -222,6 +287,7 @@ function GuidedRodField({
     const bins = engine.readFrequencyData();
     const state = engine.getState();
     const elapsed = clock.getElapsedTime();
+    elapsedSeconds.current = elapsed;
     const safeDelta = Math.max(delta, 1 / 240);
 
     for (
@@ -229,9 +295,48 @@ function GuidedRodField({
       index < guidedRods.length && index < bodies.length;
       index += 1
     ) {
+      const thermal = thermalStates.current[index];
+      const rb = bodies[index];
+      const rod = guidedRods[index];
+
+      if (thermal?.phase === "ejected" && thermal.recoverable && rb) {
+        const translation = rb.translation();
+        const velocity = rb.linvel();
+
+        rb.setTranslation(
+          {
+            x: rod.x,
+            y: translation.y,
+            z: rod.z,
+          },
+          true,
+        );
+        rb.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true);
+        rb.setLinvel({ x: 0, y: velocity.y, z: 0 }, true);
+        rb.setAngvel({ x: 0, y: 0, z: 0 }, true);
+
+        if (
+          thermal.launchY !== null &&
+          thermal.ejectedAt !== null &&
+          elapsed - thermal.ejectedAt > 0.08 &&
+          translation.y <= thermal.launchY &&
+          velocity.y <= 0
+        ) {
+          rb.setTranslation(
+            { x: rod.x, y: thermal.launchY, z: rod.z },
+            true,
+          );
+          rb.setLinvel({ x: 0, y: 0, z: 0 }, true);
+          rb.setAngvel({ x: 0, y: 0, z: 0 }, true);
+          rb.setBodyType(rapier.RigidBodyType.KinematicPosition, true);
+          detachedIndices.current.delete(index);
+          thermal.phase = "recovering";
+          thermal.landedAt = elapsed;
+        }
+      }
+
       if (detachedIndices.current.has(index)) continue;
 
-      const rod = guidedRods[index];
       const baseResponse = sampleRodBaseResponse(
         engine,
         state,
@@ -267,11 +372,72 @@ function GuidedRodField({
       verticalVelocities.current[index] =
         (nextHeight - previousHeight) / safeDelta;
 
-      bodies[index]?.setNextKinematicTranslation({
+      rb?.setNextKinematicTranslation({
         x: rod.x,
         y: CORE_TOP_Y + nextHeight - ROD_LENGTH / 2,
         z: rod.z,
       });
+    }
+
+    const colorMesh = mesh.current;
+    if (colorMesh) {
+      for (let index = 0; index < guidedRods.length; index += 1) {
+        const thermal = thermalStates.current[index];
+
+        if (!thermal) {
+          scratchColor.copy(ROD_GREEN);
+        } else if (thermal.phase === "heating") {
+          const progress = Math.min(
+            1,
+            Math.max(
+              0,
+              (elapsed - thermal.selectedAt) /
+                RANDOM_EJECTION_HEAT_SECONDS,
+            ),
+          );
+          scratchColor.copy(ROD_GREEN).lerp(ROD_HOT, progress);
+        } else if (thermal.phase === "recovering") {
+          const landedAt = thermal.landedAt ?? elapsed;
+          const progress = Math.min(
+            1,
+            Math.max(
+              0,
+              (elapsed - landedAt) /
+                RANDOM_EJECTION_RECOVERY_COOL_SECONDS,
+            ),
+          );
+          scratchColor.copy(ROD_HOT).lerp(ROD_GREEN, progress);
+
+          if (progress >= 1) {
+            thermalStates.current[index] = null;
+          }
+        } else if (thermal.recoverable) {
+          scratchColor.copy(ROD_HOT);
+        } else {
+          const ejectedAt = thermal.ejectedAt ?? elapsed;
+          const coolingElapsed =
+            elapsed -
+            ejectedAt -
+            RANDOM_EJECTION_COOL_DELAY_SECONDS;
+
+          if (coolingElapsed <= 0) {
+            scratchColor.copy(ROD_HOT);
+          } else {
+            const progress = Math.min(
+              1,
+              coolingElapsed /
+                RANDOM_EJECTION_COOL_DURATION_SECONDS,
+            );
+            scratchColor.copy(ROD_HOT).lerp(ROD_COLD_GRAY, progress);
+          }
+        }
+
+        colorMesh.setColorAt(index, scratchColor);
+      }
+
+      if (colorMesh.instanceColor) {
+        colorMesh.instanceColor.needsUpdate = true;
+      }
     }
 
     if (!randomEjectionsEnabled || !state.playing) {
@@ -296,9 +462,6 @@ function GuidedRodField({
     nextRandomEjectionAt.current =
       elapsed + RANDOM_EJECTION_INTERVAL_SECONDS;
 
-    // Candidate selection uses the global theoretical response scale, not
-    // the current sensitivity slider or the already-scaled rod height.
-    // MAX_SENSITIVITY is 3.0, so 40%-70% means a global response of 1.2-2.1.
     const minimumGlobalResponse =
       MAX_SENSITIVITY * RANDOM_EJECTION_RESPONSE_MIN;
     const maximumGlobalResponse =
@@ -310,7 +473,12 @@ function GuidedRodField({
       index < guidedRods.length && index < bodies.length;
       index += 1
     ) {
-      if (detachedIndices.current.has(index)) continue;
+      if (
+        detachedIndices.current.has(index) ||
+        thermalStates.current[index] !== null
+      ) {
+        continue;
+      }
 
       const globalResponse =
         baseResponses.current[index] * MAX_SENSITIVITY;
@@ -326,13 +494,40 @@ function GuidedRodField({
 
     if (candidates.length === 0) return;
 
-    pendingEjection.current =
+    const index =
       candidates[Math.floor(Math.random() * candidates.length)];
+    const launchSpeed =
+      Math.max(0, verticalVelocities.current[index]) *
+      RANDOM_EJECTION_UPWARD_MULTIPLIER;
+    const predictedRise =
+      (launchSpeed * launchSpeed) / (2 * GRAVITY);
+
+    thermalStates.current[index] = {
+      phase: "heating",
+      selectedAt: elapsed,
+      ejectAt: elapsed + RANDOM_EJECTION_HEAT_SECONDS,
+      ejectedAt: null,
+      landedAt: null,
+      launchY: null,
+      launchSpeed,
+      predictedRise,
+      recoverable: predictedRise <= ROD_LENGTH,
+    };
+    pendingEjection.current = index;
   });
 
   useBeforePhysicsStep(() => {
     const index = pendingEjection.current;
     if (index === null) return;
+
+    const thermal = thermalStates.current[index];
+    if (
+      !thermal ||
+      thermal.phase !== "heating" ||
+      elapsedSeconds.current < thermal.ejectAt
+    ) {
+      return;
+    }
 
     pendingEjection.current = null;
 
@@ -342,28 +537,22 @@ function GuidedRodField({
     const rod = guidedRods[index];
     if (!rb || !rod) return;
 
-    const upwardVelocity = Math.max(
-      0,
-      verticalVelocities.current[index],
-    );
+    const launchY =
+      CORE_TOP_Y +
+      heights.current[index] -
+      ROD_LENGTH / 2;
 
     detachedIndices.current.add(index);
 
     rb.setTranslation(
       {
         x: rod.x,
-        y:
-          CORE_TOP_Y +
-          heights.current[index] -
-          ROD_LENGTH / 2,
+        y: launchY,
         z: rod.z,
       },
       true,
     );
-    rb.setBodyType(
-      rapier.RigidBodyType.Dynamic,
-      true,
-    );
+    rb.setBodyType(rapier.RigidBodyType.Dynamic, true);
     rb.recomputeMassPropertiesFromColliders();
     rb.enableCcd(true);
     rb.resetForces(true);
@@ -372,22 +561,26 @@ function GuidedRodField({
     rb.setLinvel(
       {
         x: 0,
-        y:
-          upwardVelocity *
-          RANDOM_EJECTION_UPWARD_MULTIPLIER,
+        y: thermal.launchSpeed,
         z: 0,
       },
       true,
     );
 
     rb.setAngvel(
-      {
-        x: (Math.random() - 0.5) * 1.6,
-        y: (Math.random() - 0.5) * 0.35,
-        z: (Math.random() - 0.5) * 1.6,
-      },
+      thermal.recoverable
+        ? { x: 0, y: 0, z: 0 }
+        : {
+            x: (Math.random() - 0.5) * 1.6,
+            y: (Math.random() - 0.5) * 0.35,
+            z: (Math.random() - 0.5) * 1.6,
+          },
       true,
     );
+
+    thermal.phase = "ejected";
+    thermal.ejectedAt = elapsedSeconds.current;
+    thermal.launchY = launchY;
 
     rb.wakeUp();
     onRandomEjection?.(rod.channel);
@@ -403,6 +596,7 @@ function GuidedRodField({
       restitution={0.12}
     >
       <instancedMesh
+        ref={mesh}
         args={[undefined, undefined, guidedRods.length]}
         count={guidedRods.length}
         castShadow
@@ -411,7 +605,8 @@ function GuidedRodField({
       >
         <boxGeometry args={[ROD_WIDTH, ROD_LENGTH, ROD_WIDTH]} />
         <meshStandardMaterial
-          color="#8f967c"
+          vertexColors
+          color="#ffffff"
           roughness={0.72}
           metalness={0.22}
         />
@@ -420,125 +615,10 @@ function GuidedRodField({
   );
 }
 
-function LaunchRod({
-  rod,
-  engine,
-  sensitivity,
-  smoothing,
-  launch,
-}: {
-  rod: RodSpec;
-  engine: AudioEngine;
-  sensitivity: number;
-  smoothing: number;
-  launch: boolean;
-}) {
-  const body = useRef<RapierRigidBody | null>(null);
-  const height = useRef(0.07);
-  const launchApplied = useRef(false);
-
-  useFrame(({ clock }, delta) => {
-    if (launch || launchApplied.current || !body.current) return;
-
-    const bins = engine.readFrequencyData();
-    const state = engine.getState();
-    const amplitude = sampleRodAmplitude(
-      engine,
-      state,
-      bins,
-      rod,
-      clock.getElapsedTime(),
-      sensitivity,
-    );
-
-    height.current = Math.min(
-      MAX_GUIDED_PROTRUSION,
-      smoothRodHeight(
-        height.current,
-        amplitude,
-        smoothing,
-        delta,
-      ),
-    );
-
-    body.current.setNextKinematicTranslation({
-      x: rod.x,
-      y: CORE_TOP_Y + height.current - ROD_LENGTH / 2,
-      z: rod.z,
-    });
-  });
-
-  useBeforePhysicsStep(() => {
-    const rb = body.current;
-
-    if (
-      !launch ||
-      launchApplied.current ||
-      !rb ||
-      !rb.isDynamic()
-    ) {
-      return;
-    }
-
-    launchApplied.current = true;
-
-    rb.recomputeMassPropertiesFromColliders();
-    rb.resetForces(true);
-    rb.resetTorques(true);
-    rb.setLinvel(
-      {
-        x: 1.15,
-        y: 24,
-        z: -0.85,
-      },
-      true,
-    );
-    rb.setAngvel(
-      {
-        x: 0.9,
-        y: 0.12,
-        z: 1.15,
-      },
-      true,
-    );
-    rb.wakeUp();
-  });
-
-  return (
-    <RigidBody
-      ref={body}
-      type={launch ? "dynamic" : "kinematicPosition"}
-      position={[
-        rod.x,
-        CORE_TOP_Y + height.current - ROD_LENGTH / 2,
-        rod.z,
-      ]}
-      colliders="cuboid"
-      density={1}
-      friction={0.74}
-      restitution={0.16}
-      linearDamping={0.04}
-      angularDamping={0.05}
-      ccd={launch}
-      canSleep
-    >
-      <mesh castShadow receiveShadow>
-        <boxGeometry args={[ROD_WIDTH, ROD_LENGTH, ROD_WIDTH]} />
-        <meshStandardMaterial
-          color={launch ? "#c57955" : "#a59d75"}
-          roughness={0.65}
-          metalness={0.28}
-        />
-      </mesh>
-    </RigidBody>
-  );
-}
-
 function ReactorScene({
   engine,
   sensitivity,
   smoothing,
-  launch418,
   randomEjectionsEnabled,
   onRandomEjection,
   resetViewToken,
@@ -546,7 +626,7 @@ function ReactorScene({
   return (
     <>
       <color attach="background" args={["#0c100d"]} />
-      <fog attach="fog" args={["#0c100d", 34, 70]} />
+      <fog attach="fog" args={["#0c100d", 68, 140]} />
 
       <ambientLight intensity={0.78} />
       <directionalLight
@@ -563,7 +643,7 @@ function ReactorScene({
       />
 
       <Suspense fallback={null}>
-        <Physics gravity={[0, -9.81, 0]} colliders={false}>
+        <Physics gravity={[0, -GRAVITY, 0]} colliders={false}>
           <CoreBase />
           <GuidedRodField
             engine={engine}
@@ -571,13 +651,6 @@ function ReactorScene({
             smoothing={smoothing}
             randomEjectionsEnabled={randomEjectionsEnabled}
             onRandomEjection={onRandomEjection}
-          />
-          <LaunchRod
-            rod={launchRod}
-            engine={engine}
-            sensitivity={sensitivity}
-            smoothing={smoothing}
-            launch={launch418}
           />
         </Physics>
       </Suspense>
@@ -608,7 +681,7 @@ export function PhysicsReactor({
           position: [23, 17, 23],
           fov: 38,
           near: 0.1,
-          far: 120,
+          far: 240,
         }}
       >
         <ReactorScene {...sceneProps} />
