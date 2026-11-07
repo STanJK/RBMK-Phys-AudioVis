@@ -9,7 +9,7 @@ export interface AudioEngineState {
 }
 
 export interface RemoteAudioSource {
-  streamUrl: string;
+  streamUrls: string[];
   trackName: string;
   duration: number | null;
 }
@@ -29,6 +29,10 @@ export class AudioEngine {
 
   private remoteAudio: HTMLAudioElement | null = null;
   private remoteSource: MediaElementAudioSourceNode | null = null;
+  private remoteStreamUrls: string[] = [];
+  private remoteStreamIndex = 0;
+  private remoteResumeAt = 0;
+  private remoteResumeAfterFallback = false;
 
   private demoSources: AudioScheduledSourceNode[] = [];
   private listeners = new Set<Listener>();
@@ -152,7 +156,7 @@ export class AudioEngine {
       mode: "bilibili",
       trackName: "BILIBILI / 等待解析",
       duration: null,
-      message: "粘贴 B 站链接或 BV 号，通过 Worker 解析公开音频流。",
+      message: "先由浏览器本地解析 B 站公开 API；失败时再使用 Worker fallback。",
     });
   }
 
@@ -161,42 +165,115 @@ export class AudioEngine {
     this.buffer = null;
     this.offset = 0;
 
+    const urls = [...new Set(source.streamUrls.filter(Boolean))];
+    if (urls.length === 0) {
+      this.patch({
+        mode: "bilibili",
+        playing: false,
+        message: "没有可用的 B 站音频地址。",
+      });
+      return;
+    }
+
     try {
       await this.ensureAudio();
 
       const media = new Audio();
       media.crossOrigin = "anonymous";
       media.preload = "metadata";
-      media.src = source.streamUrl;
 
       this.remoteAudio = media;
+      this.remoteStreamUrls = urls;
+      this.remoteStreamIndex = 0;
+      this.remoteResumeAt = 0;
+      this.remoteResumeAfterFallback = false;
+
       this.remoteSource = this.context!.createMediaElementSource(media);
       this.remoteSource.connect(this.analyser!);
       this.master!.gain.value = this.volumePercent / 100;
 
-      media.addEventListener("ended", () => {
+      media.onended = () => {
         if (this.state.mode === "bilibili") {
           this.patch({ playing: false });
         }
-      });
+      };
 
-      media.addEventListener("loadedmetadata", () => {
+      media.onloadedmetadata = () => {
         if (this.state.mode !== "bilibili") return;
+
         const duration = Number.isFinite(media.duration)
           ? media.duration
           : source.duration;
         this.patch({ duration: duration ?? null });
-      });
 
-      media.addEventListener("error", () => {
+        if (this.remoteResumeAt > 0) {
+          try {
+            media.currentTime = Math.min(
+              this.remoteResumeAt,
+              Number.isFinite(media.duration)
+                ? Math.max(0, media.duration - 0.05)
+                : this.remoteResumeAt,
+            );
+          } catch {
+            // Range metadata may not be fully ready yet.
+          }
+        }
+
+        const shouldResume = this.remoteResumeAfterFallback;
+        this.remoteResumeAt = 0;
+        this.remoteResumeAfterFallback = false;
+
+        if (shouldResume) {
+          void media.play().then(
+            () => {
+              if (this.state.mode === "bilibili") {
+                this.patch({
+                  playing: true,
+                  message: "备用音频链路已接管，继续播放并分析。",
+                });
+              }
+            },
+            () => {
+              this.patch({
+                playing: false,
+                message: "备用音频链路已载入，但浏览器拒绝自动恢复播放；请再点一次播放。",
+              });
+            },
+          );
+        }
+      };
+
+      media.onerror = () => {
         if (this.state.mode !== "bilibili") return;
+
+        const nextIndex = this.remoteStreamIndex + 1;
+        if (nextIndex < this.remoteStreamUrls.length) {
+          this.remoteResumeAt = Number.isFinite(media.currentTime)
+            ? media.currentTime
+            : 0;
+          this.remoteResumeAfterFallback = this.state.playing;
+          this.remoteStreamIndex = nextIndex;
+
+          this.patch({
+            message:
+              nextIndex === 1
+                ? "B 站 CDN 直连失败，正在切换 Worker /stream fallback…"
+                : "当前音频链路失败，正在尝试下一备用地址…",
+          });
+
+          media.src = this.remoteStreamUrls[nextIndex];
+          media.load();
+          return;
+        }
+
         this.patch({
           playing: false,
           message:
-            "B 站音频流加载失败。可能是播放地址过期或 Worker/CDN 请求被拒绝，请重新载入链接。",
+            "B 站音频所有链路均加载失败。可重新解析，或配置/检查 Worker fallback。",
         });
-      });
+      };
 
+      media.src = this.remoteStreamUrls[0];
       media.load();
 
       this.patch({
@@ -204,14 +281,17 @@ export class AudioEngine {
         playing: false,
         trackName: source.trackName,
         duration: source.duration,
-        message: "B 站公开音频流已解析。点击播放启动 Web Audio 分析。",
+        message:
+          urls.length > 1
+            ? "B 站音频已解析：先尝试 CDN 直连，失败会自动切 Worker 代理。"
+            : "B 站音频已解析：当前只有一条可用链路。",
       });
     } catch {
       this.cleanupRemoteAudio();
       this.patch({
         mode: "bilibili",
         playing: false,
-        message: "无法建立 B 站音频源，请检查 Worker 地址或重新解析。",
+        message: "无法建立 B 站音频源，请重新解析或检查 fallback 配置。",
       });
     }
   }
@@ -332,7 +412,10 @@ export class AudioEngine {
         await this.remoteAudio.play();
         this.patch({
           playing: true,
-          message: "正在播放并分析 B 站音频流。",
+          message:
+            this.remoteStreamIndex === 0
+              ? "正在通过首选 B 站音频链路播放并分析。"
+              : "正在通过 fallback 音频链路播放并分析。",
         });
         return;
       }
@@ -399,7 +482,7 @@ export class AudioEngine {
           this.state.mode === "mic"
             ? "无法访问麦克风，请检查浏览器权限，或导入音频。"
             : this.state.mode === "bilibili"
-              ? "B 站音频播放失败，请重新解析链接或检查 Worker。"
+              ? "B 站音频播放失败；如果首选链路失败，播放器会自动尝试 fallback。"
               : "无法播放此音频，请尝试其他文件。",
       });
     }
@@ -445,6 +528,9 @@ export class AudioEngine {
 
   private cleanupRemoteAudio() {
     if (this.remoteAudio) {
+      this.remoteAudio.onended = null;
+      this.remoteAudio.onloadedmetadata = null;
+      this.remoteAudio.onerror = null;
       this.remoteAudio.pause();
       this.remoteAudio.removeAttribute("src");
       this.remoteAudio.load();
@@ -453,6 +539,10 @@ export class AudioEngine {
 
     this.remoteSource?.disconnect();
     this.remoteSource = null;
+    this.remoteStreamUrls = [];
+    this.remoteStreamIndex = 0;
+    this.remoteResumeAt = 0;
+    this.remoteResumeAfterFallback = false;
   }
 
   private patch(next: Partial<AudioEngineState>) {

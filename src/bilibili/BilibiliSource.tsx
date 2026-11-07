@@ -37,7 +37,7 @@ export function BilibiliSource({ engine }: BilibiliSourceProps) {
           : result.title;
 
       await engine.loadBilibili({
-        streamUrl: result.streamUrl,
+        streamUrls: result.streamUrls,
         trackName: `BILIBILI / ${label}`,
         duration: result.duration,
       });
@@ -52,14 +52,14 @@ export function BilibiliSource({ engine }: BilibiliSourceProps) {
   return (
     <div className="bilibili-source">
       <div className="worker-config">
-        <label htmlFor="bili-worker-url">Worker URL</label>
+        <label htmlFor="bili-worker-url">Worker fallback URL（可选）</label>
         <input
           id="bili-worker-url"
           className="bili-input"
           type="url"
           value={workerUrl}
           spellCheck={false}
-          placeholder="https://rbmk-bili-audio-proxy.<you>.workers.dev"
+          placeholder="本地解析失败/直连失败时才使用"
           onChange={(event) => setWorkerUrl(event.target.value)}
           onBlur={() => setWorkerUrl(saveWorkerUrl(workerUrl))}
         />
@@ -96,12 +96,22 @@ export function BilibiliSource({ engine }: BilibiliSourceProps) {
               ? ` · ${Math.round(resolved.bandwidth / 1000)} kbps`
               : ""}
           </span>
+          <span>
+            RESOLVER: {resolved.resolver === "browser" ? "BROWSER / LOCAL" : "WORKER FALLBACK"}
+            {resolved.proxyUrl ? " · STREAM FALLBACK READY" : " · DIRECT ONLY"}
+          </span>
+          {resolved.localError && (
+            <span title={resolved.localError}>
+              LOCAL FAIL: {resolved.localError}
+            </span>
+          )}
         </div>
       )}
 
       <p className="bili-help">
-        Worker 只解析公开 B 站播放信息并代理音频 Range 请求；不使用账号 Cookie。
-        解析后用本站 Web Audio 播放、调音量和做 FFT。
+        默认先由当前浏览器直接解析公开 B 站 API，并优先尝试 CDN 直连。
+        如果遇到 CORS、HTTP 412 或 CDN 防盗链，且配置了 Worker，则自动退到
+        Worker /resolve 或 /stream。Worker 不使用账号 Cookie。
       </p>
     </div>
   );

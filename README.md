@@ -63,8 +63,13 @@ This is an audiovisual toy, not a reactor simulation.
 
 ### Bilibili source
 
-GitHub Pages remains static. A small Cloudflare Worker in [worker/](worker/) resolves public Bilibili `bvid + p` metadata to a DASH audio track and proxies the Bilibili CDN stream with Range/CORS support.
+GitHub Pages remains static. Bilibili resolution is browser-first:
 
-The browser then plays the Worker stream through an `HTMLAudioElement`, routes it into the existing Web Audio analyser, and applies the normal playback-volume slider. No screen/tab capture is used.
+1. the page directly tries the public Bilibili `view -> playurl` APIs;
+2. it first attempts the returned CDN audio URL directly;
+3. if browser API access is blocked by CORS/HTTP 412, an optional Cloudflare Worker can resolve the same request;
+4. if the direct CDN media request fails, the same Worker `/stream` endpoint is used as the media fallback with Range/CORS support.
 
-The Bilibili panel accepts a Worker URL at runtime and stores it in localStorage, so the Pages site does not need to be rebuilt when the Worker endpoint changes.
+The browser plays the chosen stream through an `HTMLAudioElement`, routes it into the existing Web Audio analyser, and applies the normal playback-volume slider. No screen/tab capture is used.
+
+The Worker is therefore optional when both direct API access and direct CDN CORS work in the current browser/network, and acts as a fallback otherwise. Its URL is stored in localStorage so changing the endpoint does not require a Pages rebuild.
