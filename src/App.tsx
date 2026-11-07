@@ -407,7 +407,7 @@ export default function App() {
               type="button"
               onClick={() => setAz5TriggerToken((value) => value + 1)}
             >
-              AZ-5 / 全棒发射
+              AZ-5 / 8秒超调
             </button>
 
             <button

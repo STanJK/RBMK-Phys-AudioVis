@@ -30,8 +30,8 @@ import {
   smoothRodHeight,
 } from "../audio/rodResponse";
 import {
-  AZ5_LAUNCH_SPEED,
-  AZ5_RED_HOLD_SECONDS,
+  AZ5_MIN_LAUNCH_SPEED,
+  AZ5_RAMP_SECONDS,
   CONTAINMENT_WALL_HEIGHT,
   CONTAINMENT_WALL_RADIUS,
   CORE_TOP_Y,
@@ -73,6 +73,7 @@ interface RodThermalState {
   launchSpeed: number;
   predictedRise: number;
   recoverable: boolean;
+  heatDuration: number;
 }
 
 const guidedRods = ROD_LAYOUT;
@@ -237,6 +238,8 @@ function GuidedRodField({
   const pendingEjection = useRef<number | null>(null);
   const nextRandomEjectionAt = useRef<number | null>(null);
   const az5EjectAt = useRef<number | null>(null);
+  const az5StartAt = useRef<number | null>(null);
+  const az5StartSensitivity = useRef(sensitivity);
   const lastAz5TriggerToken = useRef(az5TriggerToken);
   const elapsedSeconds = useRef(0);
   const scratchColor = useMemo(() => new Color(), []);
@@ -273,26 +276,29 @@ function GuidedRodField({
 
     lastAz5TriggerToken.current = az5TriggerToken;
     const now = elapsedSeconds.current;
-    const ejectAt = now + AZ5_RED_HOLD_SECONDS;
+    const ejectAt = now + AZ5_RAMP_SECONDS;
 
     pendingEjection.current = null;
     nextRandomEjectionAt.current = ejectAt + RANDOM_EJECTION_INTERVAL_SECONDS;
+    az5StartAt.current = now;
+    az5StartSensitivity.current = sensitivity;
     az5EjectAt.current = ejectAt;
 
     for (let index = 0; index < guidedRods.length; index += 1) {
       thermalStates.current[index] = {
         phase: "heating",
-        selectedAt: now - RANDOM_EJECTION_HEAT_SECONDS,
+        selectedAt: now,
         ejectAt,
         ejectedAt: null,
         landedAt: null,
         launchY: null,
-        launchSpeed: AZ5_LAUNCH_SPEED,
+        launchSpeed: AZ5_MIN_LAUNCH_SPEED,
         predictedRise: Number.POSITIVE_INFINITY,
         recoverable: false,
+        heatDuration: AZ5_RAMP_SECONDS,
       };
     }
-  }, [az5TriggerToken]);
+  }, [az5TriggerToken, sensitivity]);
 
   useEffect(() => {
     nextRandomEjectionAt.current = null;
@@ -373,27 +379,47 @@ function GuidedRodField({
       );
       baseResponses.current[index] = baseResponse;
 
+      const az5Active =
+        az5StartAt.current !== null &&
+        az5EjectAt.current !== null &&
+        elapsed < az5EjectAt.current;
+
+      const az5Progress = az5Active
+        ? Math.min(
+            1,
+            Math.max(
+              0,
+              (elapsed - az5StartAt.current!) / AZ5_RAMP_SECONDS,
+            ),
+          )
+        : 0;
+
+      const effectiveSensitivity = az5Active
+        ? az5StartSensitivity.current +
+          (MAX_SENSITIVITY - az5StartSensitivity.current) * az5Progress
+        : sensitivity;
+
       const amplitude = state.playing
-        ? baseResponse * sensitivity
+        ? baseResponse * effectiveSensitivity
         : sampleRodAmplitude(
             engine,
             state,
             bins,
             rod,
             elapsed,
-            sensitivity,
+            effectiveSensitivity,
           );
 
       const previousHeight = heights.current[index];
-      const nextHeight = Math.min(
-        MAX_GUIDED_PROTRUSION,
-        smoothRodHeight(
-          previousHeight,
-          amplitude,
-          smoothing,
-          delta,
-        ),
+      const smoothedHeight = smoothRodHeight(
+        previousHeight,
+        amplitude,
+        smoothing,
+        delta,
       );
+      const nextHeight = az5Active
+        ? smoothedHeight
+        : Math.min(MAX_GUIDED_PROTRUSION, smoothedHeight);
 
       heights.current[index] = nextHeight;
       verticalVelocities.current[index] =
@@ -419,7 +445,7 @@ function GuidedRodField({
             Math.max(
               0,
               (elapsed - thermal.selectedAt) /
-                RANDOM_EJECTION_HEAT_SECONDS,
+                thermal.heatDuration,
             ),
           );
           scratchColor.copy(ROD_GREEN).lerp(ROD_HOT, progress);
@@ -539,6 +565,7 @@ function GuidedRodField({
       launchSpeed,
       predictedRise,
       recoverable: predictedRise <= ROD_LENGTH,
+      heatDuration: RANDOM_EJECTION_HEAT_SECONDS,
     };
     pendingEjection.current = index;
   });
@@ -548,6 +575,7 @@ function GuidedRodField({
     if (ejectAt === null || elapsedSeconds.current < ejectAt) return;
 
     az5EjectAt.current = null;
+    az5StartAt.current = null;
 
     for (
       let index = 0;
@@ -577,7 +605,13 @@ function GuidedRodField({
       rb.enableCcd(true);
       rb.resetForces(true);
       rb.resetTorques(true);
-      rb.setLinvel({ x: 0, y: AZ5_LAUNCH_SPEED, z: 0 }, true);
+      const launchSpeed = Math.max(
+        AZ5_MIN_LAUNCH_SPEED,
+        Math.max(0, verticalVelocities.current[index]) *
+          RANDOM_EJECTION_UPWARD_MULTIPLIER,
+      );
+
+      rb.setLinvel({ x: 0, y: launchSpeed, z: 0 }, true);
       rb.setAngvel(
         {
           x: (Math.random() - 0.5) * 1.8,
@@ -590,8 +624,9 @@ function GuidedRodField({
       thermal.phase = "ejected";
       thermal.ejectedAt = elapsedSeconds.current;
       thermal.launchY = rb.translation().y;
-      thermal.launchSpeed = AZ5_LAUNCH_SPEED;
-      thermal.predictedRise = Number.POSITIVE_INFINITY;
+      thermal.launchSpeed = launchSpeed;
+      thermal.predictedRise =
+        (launchSpeed * launchSpeed) / (2 * GRAVITY);
       thermal.recoverable = false;
 
       rb.wakeUp();
