@@ -372,7 +372,7 @@ export default function App() {
 
             <div className="physics-status">
               <span>HEIGHT LIMIT</span>
-              <strong>5× ROD LENGTH / 29.0 UNITS</strong>
+              <strong>5× ROD LENGTH / {(ROD_LENGTH * 5).toFixed(1)} UNITS</strong>
             </div>
 
             <label className="accident-toggle">
