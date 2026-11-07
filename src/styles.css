@@ -25,8 +25,21 @@ body,
   margin: 0;
 }
 
+html,
+body {
+  height: 100%;
+}
+
+#root {
+  height: 100svh;
+  display: grid;
+  grid-template-rows: 88px minmax(0, 1fr) 49px;
+  overflow: hidden;
+}
+
 body {
   margin: 0;
+  overflow: hidden;
   background: var(--bg);
   color: var(--text);
   font-size: 16px;
@@ -100,12 +113,15 @@ header {
 main {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 340px;
-  min-height: calc(100svh - 137px);
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
 }
 
 .stage {
   position: relative;
-  min-height: 680px;
+  min-height: 0;
+  height: 100%;
   overflow: hidden;
   background: radial-gradient(
     ellipse at 50% 49%,
@@ -235,9 +251,32 @@ h1 span {
 }
 
 aside {
+  min-height: 0;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   background: var(--panel);
   border-left: 1px solid var(--line);
   padding: 27px 25px 18px;
+}
+
+aside::-webkit-scrollbar {
+  width: 8px;
+}
+
+aside::-webkit-scrollbar-track {
+  background: #141814;
+}
+
+aside::-webkit-scrollbar-thumb {
+  background: #3c4438;
+  border: 2px solid #141814;
+}
+
+aside::-webkit-scrollbar-thumb:hover {
+  background: #56604e;
 }
 
 .panel-title {
@@ -524,6 +563,7 @@ input[type="range"]:disabled {
 
 footer {
   border-top: 1px solid var(--line);
+  height: 49px;
   min-height: 49px;
   display: flex;
   align-items: center;
@@ -552,9 +592,6 @@ footer span:nth-child(2) {
     padding: 30px;
   }
 
-  .stage {
-    min-height: 760px;
-  }
 }
 
 @media (max-width: 1000px) {
@@ -576,12 +613,25 @@ footer span:nth-child(2) {
     padding: 25px 20px;
   }
 
-  .stage {
-    min-height: 720px;
-  }
 }
 
 @media (max-width: 700px) {
+  html,
+  body,
+  #root {
+    height: auto;
+    min-height: 100%;
+  }
+
+  #root {
+    display: block;
+    overflow: visible;
+  }
+
+  body {
+    overflow: auto;
+  }
+
   header {
     height: 70px;
     padding: 0 20px;
@@ -601,6 +651,8 @@ footer span:nth-child(2) {
 
   main {
     display: block;
+    height: auto;
+    overflow: visible;
   }
 
   .stage {
@@ -623,6 +675,8 @@ footer span:nth-child(2) {
   }
 
   aside {
+    height: auto;
+    overflow: visible;
     border-left: 0;
     border-top: 1px solid var(--line);
     padding: 25px;
@@ -646,6 +700,8 @@ footer span:nth-child(2) {
   }
 
   footer {
+    height: auto;
+    min-height: 49px;
     padding: 18px 20px;
     flex-wrap: wrap;
   }
