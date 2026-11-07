@@ -1591,17 +1591,9 @@ function GuidedRodField({
       }
       applyRodCollisionMode(index, rb);
 
-      rb.setTranslation(
-        {
-          x: rod.x,
-          y:
-            CORE_TOP_Y +
-            heights.current[index] -
-            ROD_LENGTH / 2,
-          z: rod.z,
-        },
-        true,
-      );
+      // Preserve the exact Rapier transform at the AZ5 handoff.
+      // Reconstructing Y from heights.current here can snap the rod
+      // before the free-fall phase begins.
       rb.setBodyType(
         rapier.RigidBodyType.Dynamic,
         true,
