@@ -793,3 +793,58 @@ footer span:nth-child(2) {
   font: 10px monospace;
   line-height: 1.45;
 }
+
+
+.bili-presets {
+  margin-top: 11px;
+}
+
+.bili-presets > span {
+  display: block;
+  margin-bottom: 6px;
+  color: #667060;
+  font: 9px monospace;
+  letter-spacing: 0.1em;
+}
+
+.bili-presets > div {
+  display: grid;
+  gap: 6px;
+}
+
+.bili-presets button {
+  width: 100%;
+  display: grid;
+  gap: 3px;
+  padding: 8px 9px;
+  text-align: left;
+  border: 1px solid #343d31;
+  background: #151a15;
+  color: #cdd5c4;
+}
+
+.bili-presets button:hover:not(:disabled) {
+  border-color: #68755e;
+  background: #1c231b;
+}
+
+.bili-presets button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.bili-presets strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 11px monospace;
+  font-weight: 500;
+}
+
+.bili-presets small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #788373;
+  font: 9px monospace;
+}

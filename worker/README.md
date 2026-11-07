@@ -29,7 +29,7 @@ Add these repository secrets:
 - `CLOUDFLARE_API_TOKEN`
 - `CLOUDFLARE_ACCOUNT_ID`
 
-Then manually run the `deploy-bili-worker` workflow.
+Then manually run the `deploy-bili-worker` workflow. The workflow prints the stable deployment URL in the job summary and performs a `/health` smoke test before reporting success.
 
 For a fixed production endpoint you can additionally set a Pages build environment variable:
 

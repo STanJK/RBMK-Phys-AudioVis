@@ -7,6 +7,7 @@ import {
   type ResolvedBilibiliAudio,
 } from "./api";
 import { parseBilibiliInput } from "./parse";
+import { BILIBILI_PRESETS, presetInput } from "./presets";
 
 interface BilibiliSourceProps {
   engine: AudioEngine;
@@ -19,12 +20,12 @@ export function BilibiliSource({ engine }: BilibiliSourceProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = async () => {
+  const load = async (rawInput = input) => {
     try {
       setLoading(true);
       setError(null);
 
-      const ref = parseBilibiliInput(input);
+      const ref = parseBilibiliInput(rawInput);
       const savedWorkerUrl = saveWorkerUrl(workerUrl);
       setWorkerUrl(savedWorkerUrl);
 
@@ -80,6 +81,30 @@ export function BilibiliSource({ engine }: BilibiliSourceProps) {
         <button type="button" disabled={loading} onClick={() => void load()}>
           {loading ? "解析中" : "载入"}
         </button>
+      </div>
+
+      <div className="bili-presets">
+        <span>DEFAULT TEST LIST</span>
+        <div>
+          {BILIBILI_PRESETS.map((preset) => {
+            const value = presetInput(preset);
+            return (
+              <button
+                key={preset.bvid + String(preset.page ?? 1)}
+                type="button"
+                disabled={loading}
+                title={preset.note}
+                onClick={() => {
+                  setInput(value);
+                  void load(value);
+                }}
+              >
+                <strong>{preset.label}</strong>
+                <small>{preset.note}</small>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {error && <p className="bili-error">{error}</p>}

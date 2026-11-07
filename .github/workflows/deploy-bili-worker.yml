@@ -9,13 +9,41 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
       - name: Deploy Cloudflare Worker
-        uses: cloudflare/wrangler-action@v3
+        id: deploy
+        uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: worker
+          wranglerVersion: "4"
+          command: deploy
+
+      - name: Smoke test deployment
+        shell: bash
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment-url }}
+        run: |
+          set -euo pipefail
+          echo "Worker URL: $DEPLOYMENT_URL"
+          curl --fail --silent --show-error "$DEPLOYMENT_URL/health"
+          echo
+
+      - name: Publish deployment summary
+        shell: bash
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment-url }}
+        run: |
+          {
+            echo "## Bilibili Worker deployed"
+            echo
+            echo "- URL: `$DEPLOYMENT_URL`"
+            echo "- Health: `$DEPLOYMENT_URL/health`"
+            echo
+            echo "Paste the Worker URL into the Bilibili panel once; the frontend stores it in localStorage."
+          } >> "$GITHUB_STEP_SUMMARY"
