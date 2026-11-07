@@ -89,6 +89,17 @@ interface RodThermalState {
   coolDuration: number;
 }
 
+interface QuakeSample {
+  time: number;
+  x: number;
+  y: number;
+  z: number;
+}
+
+interface QuakeHistoryRef {
+  current: QuakeSample[];
+}
+
 const guidedRods = ROD_LAYOUT;
 
 const WALL_SEGMENTS = 96;
@@ -124,6 +135,9 @@ const QUAKE_START_INTENSITY = 0.2;
 const QUAKE_VERTICAL_AMPLITUDE = 1.15;
 const QUAKE_LATERAL_AMPLITUDE = 0.275;
 const QUAKE_DEFAULT_PULSE_SECONDS = 0.18;
+const CAMERA_QUAKE_DELAY_SECONDS = 0.055;
+const CAMERA_QUAKE_SCALE = 0.58;
+const CAMERA_QUAKE_HISTORY_SECONDS = 0.4;
 
 const ROD_GREEN = new Color("#82956f");
 const ROD_HOT = new Color("#d24f43");
@@ -258,6 +272,51 @@ function CameraReset({ token }: { token: number }) {
     camera.lookAt(0, 1.2, 0);
     camera.updateProjectionMatrix();
   }, [camera, token]);
+
+  return null;
+}
+
+function CameraQuake({
+  quakeHistory,
+  resetToken,
+}: {
+  quakeHistory: QuakeHistoryRef;
+  resetToken: number;
+}) {
+  const { camera } = useThree();
+  const appliedOffset = useRef({ x: 0, y: 0, z: 0 });
+
+  useEffect(() => {
+    appliedOffset.current = { x: 0, y: 0, z: 0 };
+  }, [resetToken]);
+
+  useFrame(({ clock }) => {
+    const history = quakeHistory.current;
+    const sampleTime =
+      clock.getElapsedTime() - CAMERA_QUAKE_DELAY_SECONDS;
+
+    let sample: QuakeSample | null = null;
+    for (let index = history.length - 1; index >= 0; index -= 1) {
+      if (history[index].time <= sampleTime) {
+        sample = history[index];
+        break;
+      }
+    }
+
+    const nextOffset = sample
+      ? {
+          x: sample.x * CAMERA_QUAKE_SCALE,
+          y: sample.y * CAMERA_QUAKE_SCALE,
+          z: sample.z * CAMERA_QUAKE_SCALE,
+        }
+      : { x: 0, y: 0, z: 0 };
+
+    const previous = appliedOffset.current;
+    camera.position.x += nextOffset.x - previous.x;
+    camera.position.y += nextOffset.y - previous.y;
+    camera.position.z += nextOffset.z - previous.z;
+    appliedOffset.current = nextOffset;
+  });
 
   return null;
 }
@@ -426,9 +485,11 @@ function buildExternalGridGeometry() {
 function GroundSystem({
   engine,
   az5TriggerToken,
+  quakeHistory,
 }: {
   engine: AudioEngine;
   az5TriggerToken: number;
+  quakeHistory: QuakeHistoryRef;
 }) {
   const body = useRef<RapierRigidBody | null>(null);
   const collider = useMemo(() => buildExternalGroundCollider(), []);
@@ -733,6 +794,22 @@ function GroundSystem({
       (targetY - currentTranslation.current.y) * settle;
     currentTranslation.current.z +=
       (targetZ - currentTranslation.current.z) * settle;
+
+    quakeHistory.current.push({
+      time: elapsed,
+      x: currentTranslation.current.x,
+      y: currentTranslation.current.y,
+      z: currentTranslation.current.z,
+    });
+
+    const historyCutoff =
+      elapsed - CAMERA_QUAKE_HISTORY_SECONDS;
+    while (
+      quakeHistory.current.length > 0 &&
+      quakeHistory.current[0].time < historyCutoff
+    ) {
+      quakeHistory.current.shift();
+    }
 
     rb.setNextKinematicTranslation(currentTranslation.current);
   });
@@ -1731,6 +1808,8 @@ function ReactorScene({
   az5TriggerToken,
   resetViewToken,
 }: ReactorSceneProps) {
+  const quakeHistory = useRef<QuakeSample[]>([]);
+
   return (
     <>
       <color attach="background" args={["#0c100d"]} />
@@ -1764,6 +1843,7 @@ function ReactorScene({
           <GroundSystem
             engine={engine}
             az5TriggerToken={az5TriggerToken}
+            quakeHistory={quakeHistory}
           />
           <GuidedRodField
             engine={engine}
@@ -1776,6 +1856,10 @@ function ReactorScene({
       </Suspense>
 
       <CameraReset token={resetViewToken} />
+      <CameraQuake
+        quakeHistory={quakeHistory}
+        resetToken={resetViewToken}
+      />
       <OrbitControls
         makeDefault
         target={[0, 1.2, 0]}
