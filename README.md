@@ -1,5 +1,7 @@
 # RBMK-Phys-AudioVis
 
+**English** | [简体中文](README.zh-CN.md)
+
 An RBMK-inspired audio visualizer turned into a deliberately absurd rigid-body accident sandbox.
 
 > “以切尔诺贝利反应堆堆芯的控制棒阵列为视觉原型的实时音频可视化实验。”
@@ -107,12 +109,16 @@ This keeps the visually important near-core accident relatively intact while sac
 
 Bilibili is the default source mode.
 
-The browser does not call Bilibili playurl/WBI APIs directly. Instead:
+The browser still does not call Bilibili playurl/WBI APIs directly. Resolution now uses a direct-first fallback chain:
 
-1. the browser sends BV + page to the built-in Cloudflare Worker;
-2. the Worker calls the Squidtail Bili2VRC parser;
-3. Squidtail returns a playable media URL;
-4. the Worker exposes the media through a restricted Range/CORS-capable `/stream` proxy.
+1. the browser first calls the Squidtail Bili2VRC parser directly;
+2. the direct request has a hard **10 second timeout**;
+3. network/CORS/API failures fall back immediately, while a stalled request falls back after 10 seconds;
+4. if direct parsing succeeds, the returned CDN media URL is tried first and a Worker `/stream` URL is prebuilt as media fallback;
+5. if direct parsing fails, the browser calls the Cloudflare Worker `/resolve` endpoint;
+6. the Worker calls Squidtail from Cloudflare, validates the returned CDN host, and returns its restricted Range/CORS-capable `/stream` URL.
+
+This keeps the fast path direct when Squidtail is reachable, while giving networks that cannot reliably reach the parser a Cloudflare-assisted fallback.
 
 The Worker uses an allowlist for known Bilibili CDN hosts instead of acting as a general-purpose proxy.
 
