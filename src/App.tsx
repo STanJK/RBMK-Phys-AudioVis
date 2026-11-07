@@ -306,7 +306,6 @@ export default function App() {
               min="0"
               max="100"
               value={volume}
-              disabled={audio.mode === "tab"}
               onChange={(event) =>
                 setVolume(Number(event.target.value))
               }
