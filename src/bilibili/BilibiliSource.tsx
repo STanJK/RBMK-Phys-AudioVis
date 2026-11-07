@@ -99,17 +99,13 @@ export function BilibiliSource({ engine }: BilibiliSourceProps) {
             RESOLVER: SQUIDTAIL BILI2VRC
             {resolved.quality ? ` · ${resolved.quality}` : ""}
           </span>
-          <span>
-            {resolved.proxyUrl
-              ? "MEDIA: DIRECT + WORKER STREAM FALLBACK"
-              : "MEDIA: DIRECT"}
-          </span>
+          <span>MEDIA: WORKER STREAM ONLY</span>
         </div>
       )}
 
       <p className="bili-help">
-        B 站解析只通过内置 Worker 调用 Squidtail Bili2VRC API。
-        浏览器和 Worker 均不再直接调用 Bilibili metadata / WBI 接口。
+        B 站解析只通过内置 Worker 调用 Squidtail Bili2VRC API；
+        浏览器不直连 Bilibili API 或媒体 CDN，播放统一经过 Worker /stream。
       </p>
     </div>
   );

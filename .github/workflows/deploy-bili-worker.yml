@@ -2,6 +2,11 @@ name: deploy-bili-worker
 
 on:
   workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths:
+      - "worker/**"
+      - ".github/workflows/deploy-bili-worker.yml"
 
 permissions:
   contents: read
@@ -40,12 +45,12 @@ jobs:
           echo "::group::resolve smoke"
           RESOLVE_JSON="$(curl --fail-with-body --silent --show-error "$DEPLOYMENT_URL/resolve?bvid=BV1VGYR6bECg&p=1")"
           echo "$RESOLVE_JSON"
-          PROXY_URL="$(printf '%s' "$RESOLVE_JSON" | jq -r '.proxyUrl // empty')"
-          test -n "$PROXY_URL"
+          STREAM_URL="$(printf '%s' "$RESOLVE_JSON" | jq -r '.streamUrl // empty')"
+          test -n "$STREAM_URL"
           echo "::endgroup::"
 
           echo "::group::stream smoke"
-          curl --fail-with-body --silent --show-error             --range 0-0             --output /dev/null             "$PROXY_URL"
+          curl --fail-with-body --silent --show-error             --range 0-0             --output /dev/null             "$STREAM_URL"
           echo "stream range request ok"
           echo "::endgroup::"
 

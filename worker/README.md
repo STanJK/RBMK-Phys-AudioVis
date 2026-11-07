@@ -5,9 +5,9 @@ Thin Cloudflare Worker used by the GitHub Pages frontend.
 It has one resolver path:
 
 - `GET /resolve?bvid=BV...&p=1` calls the Squidtail Bili2VRC API and adapts its response to the frontend contract.
-- `GET /stream?url=...` is a restricted media proxy with Range/CORS support for returned Bilibili/Squidtail media URLs.
+- `GET /stream?url=...` is the only media path exposed to the frontend, with restricted host allow-listing plus Range/CORS support.
 
-The Worker does **not** call Bilibili metadata, WBI, pagelist, or playurl APIs directly and does not use Bilibili account cookies.
+The Worker does **not** call Bilibili metadata, WBI, pagelist, or playurl APIs directly and does not use Bilibili account cookies. The frontend never receives or plays the raw upstream media URL directly.
 
 Upstream parser:
 

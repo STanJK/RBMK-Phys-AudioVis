@@ -68,10 +68,10 @@ GitHub Pages stays static. Bilibili resolution has a single production path:
 
 1. the browser sends BV + page to the embedded Cloudflare Worker;
 2. the Worker calls the Squidtail Bili2VRC parsing API;
-3. Squidtail returns a playable MP4 URL;
-4. the frontend first uses that media URL and can fall back to the Worker's restricted `/stream` proxy for Range/CORS handling.
+3. Squidtail returns a playable MP4 URL to the Worker;
+4. the Worker exposes that media only through its restricted `/stream` proxy with Range/CORS handling.
 
-The project no longer calls Bilibili metadata, WBI, pagelist, or playurl APIs directly from either the browser or the Worker.
+The project no longer calls Bilibili metadata, WBI, pagelist, or playurl APIs directly from either the browser or the Worker. The browser also does not connect directly to the returned media CDN URL.
 
 Production resolver:
 

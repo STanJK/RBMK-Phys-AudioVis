@@ -9,8 +9,7 @@ export interface ResolvedBilibiliAudio {
   title: string;
   part: string;
   duration: number | null;
-  directUrl: string;
-  proxyUrl: string | null;
+  streamUrl: string;
   streamUrls: string[];
   resolver: "squidtail-worker";
   strategy: "squidtail-mp4";
@@ -49,22 +48,11 @@ export async function resolveBilibiliAudio(
     );
   }
 
-  const directUrl =
-    typeof payload.directUrl === "string"
-      ? payload.directUrl
-      : typeof payload.sourceUrl === "string"
-        ? payload.sourceUrl
-        : "";
+  const streamUrl =
+    typeof payload.streamUrl === "string" ? payload.streamUrl : "";
 
-  const proxyUrl =
-    typeof payload.proxyUrl === "string"
-      ? payload.proxyUrl
-      : typeof payload.streamUrl === "string"
-        ? payload.streamUrl
-        : null;
-
-  if (!directUrl && !proxyUrl) {
-    throw new Error("Resolver 没有返回可播放媒体地址");
+  if (!streamUrl) {
+    throw new Error("Resolver 没有返回 Worker 媒体流地址");
   }
 
   return {
@@ -73,9 +61,8 @@ export async function resolveBilibiliAudio(
     title: String(payload.title || ref.bvid),
     part: String(payload.part || `P${ref.page}`),
     duration: Number(payload.duration || 0) || null,
-    directUrl: directUrl || proxyUrl!,
-    proxyUrl,
-    streamUrls: uniqueUrls([directUrl, proxyUrl]),
+    streamUrl,
+    streamUrls: [streamUrl],
     resolver: "squidtail-worker",
     strategy: "squidtail-mp4",
     quality:
@@ -83,10 +70,6 @@ export async function resolveBilibiliAudio(
         ? payload.quality.trim()
         : null,
   };
-}
-
-function uniqueUrls(values: Array<string | null | undefined>): string[] {
-  return [...new Set(values.filter((value): value is string => Boolean(value)))];
 }
 
 function normalizeWorkerUrl(value: string) {
