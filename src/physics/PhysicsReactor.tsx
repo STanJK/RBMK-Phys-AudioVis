@@ -99,9 +99,15 @@ const ROD_RETURN_COLLISION_GROUPS = interactionGroups(0, [0, 1]);
 const RETURN_FLOOR_COLLISION_GROUPS = interactionGroups(1, [0]);
 
 const BEAT_VISUAL_BAR_INDICES = [2, 3] as const;
+const BEAT_FEATURE_HZ = 30;
+const BEAT_HISTORY_SECONDS = 6;
+const BEAT_TEMPO_RECALC_SECONDS = 0.5;
+const BEAT_MIN_BPM = 60;
+const BEAT_MAX_BPM = 200;
+const BEAT_PHASE_CORRECTION = 0.22;
 const QUAKE_START_INTENSITY = 0.2;
-const QUAKE_VERTICAL_AMPLITUDE = 0.46;
-const QUAKE_LATERAL_AMPLITUDE = 0.11;
+const QUAKE_VERTICAL_AMPLITUDE = 2.3;
+const QUAKE_LATERAL_AMPLITUDE = 0.55;
 const QUAKE_DEFAULT_PULSE_SECONDS = 0.18;
 
 const ROD_GREEN = new Color("#82956f");
@@ -115,13 +121,109 @@ function spectrumBarToBin(index: number) {
   );
 }
 
-function median(values: number[]) {
-  if (values.length === 0) return 0;
-  const sorted = [...values].sort((a, b) => a - b);
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0
-    ? (sorted[middle - 1] + sorted[middle]) / 2
-    : sorted[middle];
+function hzToBin(
+  hz: number,
+  sampleRate: number,
+  fftSize: number,
+  binCount: number,
+) {
+  return Math.max(
+    1,
+    Math.min(
+      binCount - 1,
+      Math.round(hz / (sampleRate / fftSize)),
+    ),
+  );
+}
+
+function positiveSpectralFlux(
+  bins: Uint8Array,
+  previous: Float32Array,
+  start: number,
+  end: number,
+) {
+  let flux = 0;
+  const safeEnd = Math.min(end, bins.length - 1);
+  const count = Math.max(1, safeEnd - start + 1);
+
+  for (let index = start; index <= safeEnd; index += 1) {
+    const current = bins[index] / 255;
+    flux += Math.max(0, current - previous[index]);
+  }
+
+  return flux / count;
+}
+
+function estimateTempoFromOnsets(
+  history: number[],
+  currentBpm: number,
+) {
+  const minimumSamples = Math.round(BEAT_FEATURE_HZ * 2.5);
+  if (history.length < minimumSamples) return null;
+
+  const windowSize = Math.min(
+    history.length,
+    BEAT_FEATURE_HZ * BEAT_HISTORY_SECONDS,
+  );
+  const window = history.slice(-windowSize);
+  const mean =
+    window.reduce((sum, value) => sum + value, 0) /
+    Math.max(1, window.length);
+  const centered = window.map((value) =>
+    Math.max(0, value - mean * 0.72),
+  );
+
+  const minimumLag = Math.max(
+    2,
+    Math.round((BEAT_FEATURE_HZ * 60) / BEAT_MAX_BPM),
+  );
+  const maximumLag = Math.min(
+    centered.length - 2,
+    Math.round((BEAT_FEATURE_HZ * 60) / BEAT_MIN_BPM),
+  );
+
+  let bestBpm = 0;
+  let bestScore = 0;
+
+  for (let lag = minimumLag; lag <= maximumLag; lag += 1) {
+    let numerator = 0;
+    let energyA = 0;
+    let energyB = 0;
+
+    for (let index = lag; index < centered.length; index += 1) {
+      const a = centered[index];
+      const b = centered[index - lag];
+      numerator += a * b;
+      energyA += a * a;
+      energyB += b * b;
+    }
+
+    const denominator = Math.sqrt(energyA * energyB);
+    if (denominator <= 1e-9) continue;
+
+    const bpm = (60 * BEAT_FEATURE_HZ) / lag;
+    let score = numerator / denominator;
+
+    const centerPreference = Math.exp(
+      -Math.pow(Math.log2(bpm / 120), 2) / 0.7,
+    );
+    score *= 0.9 + centerPreference * 0.1;
+
+    if (currentBpm > 0) {
+      const continuity = Math.exp(
+        -Math.abs(bpm - currentBpm) / 16,
+      );
+      score *= 0.88 + continuity * 0.12;
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestBpm = bpm;
+    }
+  }
+
+  if (bestBpm <= 0 || bestScore < 0.08) return null;
+  return { bpm: bestBpm, confidence: bestScore };
 }
 
 function CameraReset({ token }: { token: number }) {
@@ -309,14 +411,23 @@ function GroundSystem({
   const elapsedSeconds = useRef(0);
   const lastAz5TriggerToken = useRef(az5TriggerToken);
   const quakeStartedAt = useRef<number | null>(null);
-  const slowBass = useRef(0);
-  const bassDeviation = useRef(0);
-  const previousBass = useRef(0);
-  const previousPreviousBass = useRef(0);
-  const lastBeatAt = useRef(-10);
-  const lastPulseAt = useRef(-10);
-  const beatIntervals = useRef<number[]>([]);
+
+  const previousSpectrum = useRef(
+    new Float32Array(engine.bins.length),
+  );
+  const onsetHistory = useRef<number[]>([]);
+  const onsetMean = useRef(0);
+  const onsetDeviation = useRef(0);
+  const previousOnset = useRef(0);
+  const previousPreviousOnset = useRef(0);
+  const lastFeatureAt = useRef(-10);
+  const lastTempoEstimateAt = useRef(-10);
+  const lastStrongOnsetAt = useRef(-10);
   const bpm = useRef(0);
+  const beatPeriod = useRef(0);
+  const nextBeatAt = useRef<number | null>(null);
+
+  const lastPulseAt = useRef(-10);
   const beatCount = useRef(0);
   const currentTranslation = useRef({ x: 0, y: 0, z: 0 });
 
@@ -327,10 +438,6 @@ function GroundSystem({
     lastAz5TriggerToken.current = az5TriggerToken;
     quakeStartedAt.current =
       az5TriggerToken > 0 ? elapsedSeconds.current : null;
-    lastBeatAt.current = -10;
-    lastPulseAt.current = -10;
-    beatIntervals.current = [];
-    bpm.current = 0;
   }, [az5TriggerToken]);
 
   useFrame(({ clock }, delta) => {
@@ -341,61 +448,216 @@ function GroundSystem({
     elapsedSeconds.current = elapsed;
     const state = engine.getState();
 
+    if (
+      state.playing &&
+      elapsed - lastFeatureAt.current >= 1 / BEAT_FEATURE_HZ
+    ) {
+      lastFeatureAt.current = elapsed;
+
+      const bins = engine.readFrequencyData();
+      const previous = previousSpectrum.current;
+      const sampleRate = engine.sampleRate;
+      const fftSize = engine.fftSize;
+
+      const lowStart = hzToBin(
+        35,
+        sampleRate,
+        fftSize,
+        bins.length,
+      );
+      const lowEnd = hzToBin(
+        180,
+        sampleRate,
+        fftSize,
+        bins.length,
+      );
+      const midStart = hzToBin(
+        180,
+        sampleRate,
+        fftSize,
+        bins.length,
+      );
+      const midEnd = hzToBin(
+        2000,
+        sampleRate,
+        fftSize,
+        bins.length,
+      );
+      const fullEnd = hzToBin(
+        8000,
+        sampleRate,
+        fftSize,
+        bins.length,
+      );
+
+      const lowFlux = positiveSpectralFlux(
+        bins,
+        previous,
+        lowStart,
+        lowEnd,
+      );
+      const midFlux = positiveSpectralFlux(
+        bins,
+        previous,
+        midStart,
+        midEnd,
+      );
+      const fullFlux = positiveSpectralFlux(
+        bins,
+        previous,
+        lowStart,
+        fullEnd,
+      );
+
+      let kickFlux = 0;
+      for (const visualIndex of BEAT_VISUAL_BAR_INDICES) {
+        const binIndex = spectrumBarToBin(visualIndex);
+        const current = bins[binIndex] / 255;
+        kickFlux += Math.max(
+          0,
+          current - previous[binIndex],
+        );
+      }
+      kickFlux /= BEAT_VISUAL_BAR_INDICES.length;
+
+      const onset =
+        lowFlux * 0.4 +
+        midFlux * 0.25 +
+        fullFlux * 0.2 +
+        kickFlux * 0.15;
+
+      for (let index = 0; index <= fullEnd; index += 1) {
+        previous[index] = bins[index] / 255;
+      }
+
+      const baselineAlpha = 0.045;
+      onsetMean.current +=
+        (onset - onsetMean.current) * baselineAlpha;
+      onsetDeviation.current +=
+        (Math.abs(onset - onsetMean.current) -
+          onsetDeviation.current) *
+        baselineAlpha;
+
+      onsetHistory.current.push(onset);
+      const maximumHistory = Math.round(
+        BEAT_FEATURE_HZ * BEAT_HISTORY_SECONDS,
+      );
+      if (onsetHistory.current.length > maximumHistory) {
+        onsetHistory.current.splice(
+          0,
+          onsetHistory.current.length - maximumHistory,
+        );
+      }
+
+      const peakTime = elapsed - 1 / BEAT_FEATURE_HZ;
+      const localPeak =
+        previousOnset.current >
+          previousPreviousOnset.current &&
+        previousOnset.current >= onset;
+      const onsetThreshold =
+        onsetMean.current +
+        Math.max(0.0025, onsetDeviation.current * 1.25);
+      const strongOnset =
+        localPeak &&
+        previousOnset.current > onsetThreshold &&
+        peakTime - lastStrongOnsetAt.current >= 0.16;
+
+      if (strongOnset) {
+        lastStrongOnsetAt.current = peakTime;
+
+        if (
+          beatPeriod.current > 0 &&
+          nextBeatAt.current !== null
+        ) {
+          const period = beatPeriod.current;
+          const nearestBeat =
+            nextBeatAt.current +
+            Math.round(
+              (peakTime - nextBeatAt.current) / period,
+            ) *
+              period;
+          const phaseError = peakTime - nearestBeat;
+
+          if (Math.abs(phaseError) <= period * 0.3) {
+            nextBeatAt.current +=
+              phaseError * BEAT_PHASE_CORRECTION;
+          }
+        } else {
+          lastPulseAt.current = peakTime;
+          beatCount.current += 1;
+        }
+      }
+
+      previousPreviousOnset.current = previousOnset.current;
+      previousOnset.current = onset;
+
+      if (
+        elapsed - lastTempoEstimateAt.current >=
+        BEAT_TEMPO_RECALC_SECONDS
+      ) {
+        lastTempoEstimateAt.current = elapsed;
+        const estimate = estimateTempoFromOnsets(
+          onsetHistory.current,
+          bpm.current,
+        );
+
+        if (estimate) {
+          const newBpm =
+            bpm.current > 0
+              ? bpm.current * 0.72 + estimate.bpm * 0.28
+              : estimate.bpm;
+          bpm.current = newBpm;
+          beatPeriod.current = 60 / newBpm;
+
+          if (nextBeatAt.current === null) {
+            const anchor =
+              elapsed - lastStrongOnsetAt.current <= 1.5
+                ? lastStrongOnsetAt.current
+                : elapsed;
+            let next =
+              anchor + beatPeriod.current;
+
+            while (next <= elapsed) {
+              next += beatPeriod.current;
+            }
+            nextBeatAt.current = next;
+          }
+        }
+      }
+    }
+
+    if (!state.playing) {
+      previousSpectrum.current.fill(0);
+      onsetHistory.current = [];
+      onsetMean.current = 0;
+      onsetDeviation.current = 0;
+      previousOnset.current = 0;
+      previousPreviousOnset.current = 0;
+      bpm.current = 0;
+      beatPeriod.current = 0;
+      nextBeatAt.current = null;
+      lastStrongOnsetAt.current = -10;
+    } else if (
+      beatPeriod.current > 0 &&
+      nextBeatAt.current !== null
+    ) {
+      let guard = 0;
+      while (
+        elapsed >= nextBeatAt.current &&
+        guard < 4
+      ) {
+        lastPulseAt.current = nextBeatAt.current;
+        beatCount.current += 1;
+        nextBeatAt.current += beatPeriod.current;
+        guard += 1;
+      }
+    }
+
     let targetX = 0;
     let targetY = 0;
     let targetZ = 0;
 
     if (quakeStartedAt.current !== null && state.playing) {
-      const bins = engine.readFrequencyData();
-      const bass =
-        BEAT_VISUAL_BAR_INDICES.reduce(
-          (sum, barIndex) =>
-            sum + bins[spectrumBarToBin(barIndex)] / 255,
-          0,
-        ) / BEAT_VISUAL_BAR_INDICES.length;
-
-      const slowAlpha = 1 - Math.exp(-delta / 0.85);
-      const deviationAlpha = 1 - Math.exp(-delta / 1.1);
-      slowBass.current += (bass - slowBass.current) * slowAlpha;
-      bassDeviation.current +=
-        (Math.abs(bass - slowBass.current) - bassDeviation.current) *
-        deviationAlpha;
-
-      const threshold =
-        slowBass.current +
-        Math.max(0.035, bassDeviation.current * 1.7);
-
-      const localPeak =
-        previousBass.current > previousPreviousBass.current &&
-        previousBass.current >= bass;
-
-      const beatDetected =
-        localPeak &&
-        previousBass.current > Math.max(0.065, threshold) &&
-        elapsed - lastBeatAt.current >= 0.22;
-
-      if (beatDetected) {
-        const interval = elapsed - lastBeatAt.current;
-        if (interval >= 0.28 && interval <= 1.1) {
-          beatIntervals.current.push(interval);
-          if (beatIntervals.current.length > 8) {
-            beatIntervals.current.shift();
-          }
-
-          const beatPeriod = median(beatIntervals.current);
-          if (beatPeriod > 0) {
-            bpm.current = 60 / beatPeriod;
-          }
-        }
-
-        lastBeatAt.current = elapsed;
-        lastPulseAt.current = elapsed;
-        beatCount.current += 1;
-      }
-
-      previousPreviousBass.current = previousBass.current;
-      previousBass.current = bass;
-
       const ramp = Math.min(
         1,
         Math.max(
@@ -407,8 +669,7 @@ function GroundSystem({
         QUAKE_START_INTENSITY +
         (1 - QUAKE_START_INTENSITY) * ramp;
 
-      const detectedPeriod =
-        bpm.current > 0 ? 60 / bpm.current : 0;
+      const detectedPeriod = beatPeriod.current;
       const pulseSeconds = detectedPeriod
         ? Math.min(
             0.24,
@@ -438,11 +699,6 @@ function GroundSystem({
           intensity *
           pulse;
       }
-    } else {
-      previousPreviousBass.current = 0;
-      previousBass.current = 0;
-      slowBass.current = 0;
-      bassDeviation.current = 0;
     }
 
     const settle = 1 - Math.exp(-delta * 18);
