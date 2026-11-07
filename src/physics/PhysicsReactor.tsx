@@ -49,6 +49,7 @@ import {
   HEIGHT_LIMIT_Y,
   MAX_GUIDED_PROTRUSION,
   RANDOM_EJECTION_COOL_DELAY_SECONDS,
+  RANDOM_EJECTION_COOL_DURATION_BIAS_SECONDS,
   RANDOM_EJECTION_COOL_DURATION_SECONDS,
   RANDOM_EJECTION_HEAT_SECONDS,
   RANDOM_EJECTION_INTERVAL_SECONDS,
@@ -84,6 +85,7 @@ interface RodThermalState {
   predictedRise: number;
   recoverable: boolean;
   heatDuration: number;
+  coolDuration: number;
 }
 
 const guidedRods = ROD_LAYOUT;
@@ -113,6 +115,15 @@ const QUAKE_DEFAULT_PULSE_SECONDS = 0.18;
 const ROD_GREEN = new Color("#82956f");
 const ROD_HOT = new Color("#d24f43");
 const ROD_COLD_GRAY = new Color("#737876");
+
+function randomGrayCoolDuration() {
+  return Math.max(
+    0.1,
+    RANDOM_EJECTION_COOL_DURATION_SECONDS +
+      (Math.random() * 2 - 1) *
+        RANDOM_EJECTION_COOL_DURATION_BIAS_SECONDS,
+  );
+}
 
 function spectrumBarToBin(index: number) {
   return Math.min(
@@ -907,6 +918,7 @@ function GuidedRodField({
         predictedRise: Number.POSITIVE_INFINITY,
         recoverable: false,
         heatDuration: AZ5_RAMP_SECONDS,
+        coolDuration: randomGrayCoolDuration(),
       };
     }
   }, [az5TriggerToken, sensitivity]);
@@ -1124,8 +1136,7 @@ function GuidedRodField({
           } else {
             const progress = Math.min(
               1,
-              coolingElapsed /
-                RANDOM_EJECTION_COOL_DURATION_SECONDS,
+              coolingElapsed / thermal.coolDuration,
             );
             scratchColor.copy(ROD_HOT).lerp(ROD_COLD_GRAY, progress);
           }
@@ -1212,6 +1223,7 @@ function GuidedRodField({
       predictedRise,
       recoverable: predictedRise <= ROD_LENGTH,
       heatDuration: RANDOM_EJECTION_HEAT_SECONDS,
+      coolDuration: randomGrayCoolDuration(),
     };
     pendingEjection.current = index;
   });
