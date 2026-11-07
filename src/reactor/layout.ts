@@ -2,6 +2,8 @@ export const CORE_RADIUS = 15;
 export const ROD_SPACING = 1.02;
 export const ROD_LENGTH = 5.8;
 export const ROD_WIDTH = 0.72;
+export const CORE_TOP_Y = 0;
+export const MAX_GUIDED_PROTRUSION = ROD_LENGTH - 0.35;
 export const LAUNCH_CHANNEL = 418;
 
 export interface RodSpec {
