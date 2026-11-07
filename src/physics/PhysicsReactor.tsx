@@ -74,13 +74,14 @@ interface PhysicsReactorProps {
 interface ReactorSceneProps extends Omit<PhysicsReactorProps, "physicsEpoch"> {}
 
 interface RodThermalState {
-  phase: "heating" | "az5-waiting" | "ejected" | "recovering";
+  phase: "heating" | "az5-falling" | "ejected" | "recovering";
   selectedAt: number;
   ejectAt: number;
   ejectedAt: number | null;
   landedAt: number | null;
   launchY: number | null;
   launchSpeed: number;
+  az5EntryVelocity: number;
   predictedRise: number;
   recoverable: boolean;
   heatDuration: number;
@@ -939,6 +940,7 @@ function GuidedRodField({
         landedAt: null,
         launchY: null,
         launchSpeed: AZ5_MIN_LAUNCH_SPEED,
+        az5EntryVelocity: 0,
         predictedRise: Number.POSITIVE_INFINITY,
         recoverable: false,
         heatDuration: AZ5_RAMP_SECONDS,
@@ -1155,6 +1157,7 @@ function GuidedRodField({
 
       if (
         rb &&
+        thermal?.phase === "ejected" &&
         detachedIndices.current.has(index) &&
         !surfaceClearedIndices.current.has(index)
       ) {
@@ -1172,6 +1175,67 @@ function GuidedRodField({
           if (thermal) {
             thermal.recoverable = false;
           }
+        }
+      }
+
+      if (thermal?.phase === "az5-falling" && rb) {
+        const translation = rb.translation();
+        const velocity = rb.linvel();
+        const bottomCenterY =
+          CORE_TOP_Y +
+          GUIDED_BASELINE_HEIGHT -
+          ROD_LENGTH / 2;
+
+        rb.setTranslation(
+          {
+            x: rod.x,
+            y: translation.y,
+            z: rod.z,
+          },
+          true,
+        );
+        rb.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true);
+        rb.setLinvel({ x: 0, y: velocity.y, z: 0 }, true);
+        rb.setAngvel({ x: 0, y: 0, z: 0 }, true);
+
+        if (
+          translation.y <= bottomCenterY &&
+          velocity.y <= 0
+        ) {
+          rb.setTranslation(
+            {
+              x: rod.x,
+              y: bottomCenterY,
+              z: rod.z,
+            },
+            true,
+          );
+          rb.setLinvel(
+            {
+              x: 0,
+              y: thermal.launchSpeed,
+              z: 0,
+            },
+            true,
+          );
+          rb.setAngvel(
+            {
+              x: (Math.random() - 0.5) * 1.8,
+              y: (Math.random() - 0.5) * 0.5,
+              z: (Math.random() - 0.5) * 1.8,
+            },
+            true,
+          );
+
+          thermal.phase = "ejected";
+          thermal.ejectedAt = elapsed;
+          thermal.launchY = bottomCenterY;
+          thermal.predictedRise =
+            (thermal.launchSpeed * thermal.launchSpeed) /
+            (2 * GRAVITY);
+          thermal.recoverable = false;
+
+          rb.wakeUp();
         }
       }
 
@@ -1258,19 +1322,16 @@ function GuidedRodField({
           (MAX_SENSITIVITY - az5StartSensitivity.current) * az5Progress
         : sensitivity;
 
-      const amplitude =
-        thermal?.phase === "az5-waiting"
-          ? 0
-          : state.playing
-            ? baseResponse * effectiveSensitivity
-            : sampleRodAmplitude(
-                engine,
-                state,
-                bins,
-                rod,
-                elapsed,
-                effectiveSensitivity,
-              );
+      const amplitude = state.playing
+        ? baseResponse * effectiveSensitivity
+        : sampleRodAmplitude(
+            engine,
+            state,
+            bins,
+            rod,
+            elapsed,
+            effectiveSensitivity,
+          );
 
       const previousHeight = heights.current[index];
       const smoothedHeight = smoothRodHeight(
@@ -1311,7 +1372,7 @@ function GuidedRodField({
             ),
           );
           scratchColor.copy(ROD_GREEN).lerp(ROD_HOT, progress);
-        } else if (thermal.phase === "az5-waiting") {
+        } else if (thermal.phase === "az5-falling") {
           scratchColor.copy(ROD_HOT);
         } else if (thermal.phase === "recovering") {
           const landedAt = thermal.landedAt ?? elapsed;
@@ -1426,6 +1487,7 @@ function GuidedRodField({
       landedAt: null,
       launchY: null,
       launchSpeed,
+      az5EntryVelocity: 0,
       predictedRise,
       recoverable: predictedRise <= ROD_LENGTH,
       heatDuration: RANDOM_EJECTION_HEAT_SECONDS,
@@ -1436,69 +1498,12 @@ function GuidedRodField({
 
   useBeforePhysicsStep(() => {
     const ejectAt = az5EjectAt.current;
+    if (ejectAt === null || elapsedSeconds.current < ejectAt) return;
 
-    if (
-      ejectAt !== null &&
-      elapsedSeconds.current >= ejectAt
-    ) {
-      az5EjectAt.current = null;
-      az5StartAt.current = null;
+    az5EjectAt.current = null;
+    az5StartAt.current = null;
 
-      for (
-        let index = 0;
-        index < guidedRods.length &&
-        index < rigidBodies.current.length;
-        index += 1
-      ) {
-        if (everFullyEjectedIndices.current.has(index)) continue;
-
-        const thermal = thermalStates.current[index];
-        if (!thermal || thermal.phase !== "heating") continue;
-
-        const recordedUpwardVelocity = Math.max(
-          0,
-          verticalVelocities.current[index],
-        );
-        const launchSpeed = Math.max(
-          AZ5_MIN_LAUNCH_SPEED,
-          recordedUpwardVelocity *
-            RANDOM_EJECTION_UPWARD_MULTIPLIER,
-        );
-
-        thermal.phase = "az5-waiting";
-        thermal.launchSpeed = launchSpeed;
-        thermal.predictedRise =
-          (launchSpeed * launchSpeed) / (2 * GRAVITY);
-        thermal.recoverable = false;
-      }
-    }
-
-    const readyIndices: number[] = [];
-
-    for (
-      let index = 0;
-      index < guidedRods.length &&
-      index < rigidBodies.current.length;
-      index += 1
-    ) {
-      const thermal = thermalStates.current[index];
-
-      if (
-        !thermal ||
-        thermal.phase !== "az5-waiting" ||
-        detachedIndices.current.has(index) ||
-        everFullyEjectedIndices.current.has(index)
-      ) {
-        continue;
-      }
-
-      if (heights.current[index] <= AZ5_BOTTOM_EJECT_HEIGHT) {
-        readyIndices.push(index);
-      }
-    }
-
-    if (readyIndices.length === 0) return;
-
+    const transitionIndices: number[] = [];
     let existingPairCollisionCount = 0;
 
     for (
@@ -1517,17 +1522,27 @@ function GuidedRodField({
       ) {
         existingPairCollisionCount += 1;
       }
+
+      const thermal = thermalStates.current[index];
+      if (
+        !everFullyEjectedIndices.current.has(index) &&
+        thermal?.phase === "heating"
+      ) {
+        transitionIndices.push(index);
+      }
     }
 
+    const shuffledTransitionIndices = [...transitionIndices];
     for (
-      let index = readyIndices.length - 1;
+      let index = shuffledTransitionIndices.length - 1;
       index > 0;
       index -= 1
     ) {
       const swapIndex = Math.floor(Math.random() * (index + 1));
-      const value = readyIndices[index];
-      readyIndices[index] = readyIndices[swapIndex];
-      readyIndices[swapIndex] = value;
+      const value = shuffledTransitionIndices[index];
+      shuffledTransitionIndices[index] =
+        shuffledTransitionIndices[swapIndex];
+      shuffledTransitionIndices[swapIndex] = value;
     }
 
     let availablePairCollisionSlots = Math.max(
@@ -1535,45 +1550,58 @@ function GuidedRodField({
       MAX_ROD_PAIR_COLLIDING_RODS -
         existingPairCollisionCount,
     );
+    const pairCollisionAllowed = new Set(
+      shuffledTransitionIndices.slice(
+        0,
+        availablePairCollisionSlots,
+      ),
+    );
 
-    for (const index of readyIndices) {
+    for (const index of transitionIndices) {
       const rb = rigidBodies.current[index];
       const rod = guidedRods[index];
       const thermal = thermalStates.current[index];
 
-      if (
-        !rb ||
-        !rod ||
-        !thermal ||
-        thermal.phase !== "az5-waiting"
-      ) {
-        continue;
-      }
+      if (!rb || !rod || !thermal) continue;
 
-      const launchY =
-        CORE_TOP_Y +
-        GUIDED_BASELINE_HEIGHT -
-        ROD_LENGTH / 2;
-
-      rb.setTranslation(
-        {
-          x: rod.x,
-          y: launchY,
-          z: rod.z,
-        },
-        true,
+      const entryVelocity = verticalVelocities.current[index];
+      const launchSpeed = Math.max(
+        AZ5_MIN_LAUNCH_SPEED,
+        Math.max(0, entryVelocity) *
+          RANDOM_EJECTION_UPWARD_MULTIPLIER,
       );
+
+      thermal.phase = "az5-falling";
+      thermal.az5EntryVelocity = entryVelocity;
+      thermal.launchSpeed = launchSpeed;
+      thermal.predictedRise =
+        (launchSpeed * launchSpeed) / (2 * GRAVITY);
+      thermal.recoverable = false;
 
       detachedIndices.current.add(index);
 
-      if (availablePairCollisionSlots > 0) {
+      if (pairCollisionAllowed.has(index)) {
         rodPairCollisionDisabledIndices.current.delete(index);
-        availablePairCollisionSlots -= 1;
+        availablePairCollisionSlots = Math.max(
+          0,
+          availablePairCollisionSlots - 1,
+        );
       } else {
         rodPairCollisionDisabledIndices.current.add(index);
       }
       applyRodCollisionMode(index, rb);
 
+      rb.setTranslation(
+        {
+          x: rod.x,
+          y:
+            CORE_TOP_Y +
+            heights.current[index] -
+            ROD_LENGTH / 2,
+          z: rod.z,
+        },
+        true,
+      );
       rb.setBodyType(
         rapier.RigidBodyType.Dynamic,
         true,
@@ -1582,29 +1610,16 @@ function GuidedRodField({
       rb.enableCcd(true);
       rb.resetForces(true);
       rb.resetTorques(true);
-
+      rb.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true);
       rb.setLinvel(
         {
           x: 0,
-          y: thermal.launchSpeed,
+          y: entryVelocity,
           z: 0,
         },
         true,
       );
-      rb.setAngvel(
-        {
-          x: (Math.random() - 0.5) * 1.8,
-          y: (Math.random() - 0.5) * 0.5,
-          z: (Math.random() - 0.5) * 1.8,
-        },
-        true,
-      );
-
-      thermal.phase = "ejected";
-      thermal.ejectedAt = elapsedSeconds.current;
-      thermal.launchY = launchY;
-      thermal.recoverable = false;
-
+      rb.setAngvel({ x: 0, y: 0, z: 0 }, true);
       rb.wakeUp();
     }
   });
