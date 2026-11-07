@@ -108,7 +108,7 @@ const RETURN_FLOOR_COLLISION_GROUPS = interactionGroups(3, [1, 2]);
 const ROD_DISABLED_COLLISION_GROUPS = interactionGroups(15, []);
 
 const MAX_ROD_PAIR_COLLIDING_RODS = Math.floor(ROD_LAYOUT.length / 2);
-const MAX_REALTIME_COLLIDING_RODS = Math.floor(ROD_LAYOUT.length / 4);
+const MAX_REALTIME_COLLIDING_RODS = Math.floor((ROD_LAYOUT.length * 3) / 4);
 const COLLISION_CULL_RADIUS =
   CONTAINMENT_WALL_RADIUS * 1.5;
 const COLLISION_BUDGET_CHECK_SECONDS = 0.25;

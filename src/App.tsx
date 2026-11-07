@@ -19,7 +19,7 @@ export default function App() {
   const engine = engineRef.current;
 
   const [audio, setAudio] = useState<AudioEngineState>(engine.getState());
-  const [sensitivity, setSensitivity] = useState(0.8);
+  const [sensitivity, setSensitivity] = useState(0.5);
   const [smoothing, setSmoothing] = useState(67);
   const [volume, setVolume] = useState(40);
   const [levelDb, setLevelDb] = useState<number | null>(null);
