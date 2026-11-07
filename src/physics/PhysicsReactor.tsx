@@ -145,38 +145,18 @@ function ContainmentWall() {
 
 function HeightLimitPlate() {
   return (
-    <>
-      <mesh position={[0, HEIGHT_LIMIT_Y, 0]}>
-        <boxGeometry
-          args={[
-            HEIGHT_LIMIT_HALF_SIZE * 2,
-            HEIGHT_LIMIT_HALF_THICKNESS * 2,
-            HEIGHT_LIMIT_HALF_SIZE * 2,
-          ]}
-        />
-        <meshStandardMaterial
-          color="#8e9790"
-          transparent
-          opacity={0.16}
-          roughness={0.78}
-          metalness={0.22}
-          depthWrite={false}
-        />
-      </mesh>
-
-      <RigidBody type="fixed" colliders={false}>
-        <CuboidCollider
-          args={[
-            HEIGHT_LIMIT_HALF_SIZE,
-            HEIGHT_LIMIT_HALF_THICKNESS,
-            HEIGHT_LIMIT_HALF_SIZE,
-          ]}
-          position={[0, HEIGHT_LIMIT_Y, 0]}
-          friction={0.72}
-          restitution={0.22}
-        />
-      </RigidBody>
-    </>
+    <RigidBody type="fixed" colliders={false}>
+      <CuboidCollider
+        args={[
+          HEIGHT_LIMIT_HALF_SIZE,
+          HEIGHT_LIMIT_HALF_THICKNESS,
+          HEIGHT_LIMIT_HALF_SIZE,
+        ]}
+        position={[0, HEIGHT_LIMIT_Y, 0]}
+        friction={0.72}
+        restitution={0.22}
+      />
+    </RigidBody>
   );
 }
 
