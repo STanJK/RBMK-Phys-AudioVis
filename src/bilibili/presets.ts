@@ -13,6 +13,14 @@ export const BILIBILI_PRESETS: BilibiliPreset[] = [
     label: "aLIEz",
     bvid: "BV1Ax411J7YE",
   },
+  {
+    label: "黑人抬棺",
+    bvid: "BV1dp4y1X72N",
+  },
+  {
+    label: "低皮质醇",
+    bvid: "BV1r9PhzHEai",
+  },
 ];
 
 export function presetInput(preset: BilibiliPreset): string {
