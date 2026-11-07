@@ -308,7 +308,7 @@ export default function App() {
                 </strong>
               </div>
             </div>
-            <div className="spectrum-slot" />
+            <canvas id="spectrum" aria-label="实时频谱" />
           </section>
 
           <p className="message" role="status">
