@@ -36,7 +36,9 @@ export class AudioEngine {
   subscribe(listener: Listener) {
     this.listeners.add(listener);
     listener(this.getState());
-    return () => {\n      this.listeners.delete(listener);\n    };
+    return () => {
+      this.listeners.delete(listener);
+    };
   }
 
   getState(): AudioEngineState {
