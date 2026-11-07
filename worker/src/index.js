@@ -47,6 +47,11 @@ export default {
         return await resolveAudio(request, url);
       }
 
+      if (url.pathname === "/diagnose") {
+        if (request.method !== "GET") return methodNotAllowed();
+        return await diagnoseBilibili(url);
+      }
+
       if (url.pathname === "/stream") {
         if (request.method !== "GET" && request.method !== "HEAD") {
           return methodNotAllowed();
@@ -61,6 +66,54 @@ export default {
     }
   },
 };
+
+
+async function diagnoseBilibili(requestUrl) {
+  const bvid = (requestUrl.searchParams.get("bvid") || "BV1VGYR6bECg").trim();
+
+  const targets = [
+    ["video-page", `https://www.bilibili.com/video/${bvid}/`],
+    ["homepage", "https://www.bilibili.com/"],
+    ["api-nav", "https://api.bilibili.com/x/web-interface/nav"],
+    ["api-view", `https://api.bilibili.com/x/web-interface/view?bvid=${encodeURIComponent(bvid)}`],
+  ];
+
+  const results = [];
+
+  for (const [name, target] of targets) {
+    try {
+      const response = await fetch(target, {
+        headers: {
+          "User-Agent": CDN_UA,
+          Referer: BILI_REFERER,
+          Accept: name.includes("page") || name === "homepage"
+            ? "text/html,application/xhtml+xml"
+            : "application/json, text/plain, */*",
+          "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        },
+        redirect: "manual",
+      });
+
+      const text = await response.text();
+      results.push({
+        name,
+        status: response.status,
+        location: response.headers.get("location"),
+        contentType: response.headers.get("content-type"),
+        hasInitialState: text.includes("__INITIAL_STATE__"),
+        hasPlayInfo: text.includes("__playinfo__"),
+        prefix: text.slice(0, 120),
+      });
+    } catch (error) {
+      results.push({
+        name,
+        error: errorMessage(error),
+      });
+    }
+  }
+
+  return json({ ok: true, bvid, results });
+}
 
 async function resolveAudio(request, requestUrl) {
   const bvid = (requestUrl.searchParams.get("bvid") || "").trim();
