@@ -21,6 +21,9 @@ jobs:
         with:
           node-version: 22
 
+      - name: Check Bilibili Worker syntax
+        run: node --check worker/src/index.js
+
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
