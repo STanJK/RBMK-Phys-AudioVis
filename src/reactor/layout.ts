@@ -15,6 +15,8 @@ export const RANDOM_EJECTION_RECOVERY_COOL_SECONDS = 5;
 export const RANDOM_EJECTION_RESPONSE_MIN = 0.4;
 export const RANDOM_EJECTION_RESPONSE_MAX = 0.7;
 export const RANDOM_EJECTION_UPWARD_MULTIPLIER = 10;
+export const AZ5_RED_HOLD_SECONDS = 0.75;
+export const AZ5_LAUNCH_SPEED = 24;
 
 export interface RodSpec {
   channel: number;

@@ -30,6 +30,8 @@ import {
   smoothRodHeight,
 } from "../audio/rodResponse";
 import {
+  AZ5_LAUNCH_SPEED,
+  AZ5_RED_HOLD_SECONDS,
   CONTAINMENT_WALL_HEIGHT,
   CONTAINMENT_WALL_RADIUS,
   CORE_TOP_Y,
@@ -53,6 +55,7 @@ interface PhysicsReactorProps {
   sensitivity: number;
   smoothing: number;
   randomEjectionsEnabled: boolean;
+  az5TriggerToken: number;
   onRandomEjection?: (channel: number) => void;
   resetViewToken: number;
   physicsEpoch: number;
@@ -205,6 +208,7 @@ function GuidedRodField({
   sensitivity,
   smoothing,
   randomEjectionsEnabled,
+  az5TriggerToken,
   onRandomEjection,
 }: Pick<
   ReactorSceneProps,
@@ -212,6 +216,7 @@ function GuidedRodField({
   | "sensitivity"
   | "smoothing"
   | "randomEjectionsEnabled"
+  | "az5TriggerToken"
   | "onRandomEjection"
 >) {
   const rigidBodies = useRef<RapierRigidBody[]>([]);
@@ -231,6 +236,8 @@ function GuidedRodField({
   );
   const pendingEjection = useRef<number | null>(null);
   const nextRandomEjectionAt = useRef<number | null>(null);
+  const az5EjectAt = useRef<number | null>(null);
+  const lastAz5TriggerToken = useRef(az5TriggerToken);
   const elapsedSeconds = useRef(0);
   const scratchColor = useMemo(() => new Color(), []);
   const { rapier } = useRapier();
@@ -260,6 +267,32 @@ function GuidedRodField({
       colorMesh.instanceColor.needsUpdate = true;
     }
   }, []);
+
+  useEffect(() => {
+    if (az5TriggerToken === lastAz5TriggerToken.current) return;
+
+    lastAz5TriggerToken.current = az5TriggerToken;
+    const now = elapsedSeconds.current;
+    const ejectAt = now + AZ5_RED_HOLD_SECONDS;
+
+    pendingEjection.current = null;
+    nextRandomEjectionAt.current = ejectAt + RANDOM_EJECTION_INTERVAL_SECONDS;
+    az5EjectAt.current = ejectAt;
+
+    for (let index = 0; index < guidedRods.length; index += 1) {
+      thermalStates.current[index] = {
+        phase: "heating",
+        selectedAt: now - RANDOM_EJECTION_HEAT_SECONDS,
+        ejectAt,
+        ejectedAt: null,
+        landedAt: null,
+        launchY: null,
+        launchSpeed: AZ5_LAUNCH_SPEED,
+        predictedRise: Number.POSITIVE_INFINITY,
+        recoverable: false,
+      };
+    }
+  }, [az5TriggerToken]);
 
   useEffect(() => {
     nextRandomEjectionAt.current = null;
@@ -511,6 +544,61 @@ function GuidedRodField({
   });
 
   useBeforePhysicsStep(() => {
+    const ejectAt = az5EjectAt.current;
+    if (ejectAt === null || elapsedSeconds.current < ejectAt) return;
+
+    az5EjectAt.current = null;
+
+    for (
+      let index = 0;
+      index < guidedRods.length && index < rigidBodies.current.length;
+      index += 1
+    ) {
+      const rb = rigidBodies.current[index];
+      const rod = guidedRods[index];
+      const thermal = thermalStates.current[index];
+
+      if (!rb || !rod || !thermal) continue;
+
+      if (!detachedIndices.current.has(index)) {
+        rb.setTranslation(
+          {
+            x: rod.x,
+            y: CORE_TOP_Y + heights.current[index] - ROD_LENGTH / 2,
+            z: rod.z,
+          },
+          true,
+        );
+      }
+
+      detachedIndices.current.add(index);
+      rb.setBodyType(rapier.RigidBodyType.Dynamic, true);
+      rb.recomputeMassPropertiesFromColliders();
+      rb.enableCcd(true);
+      rb.resetForces(true);
+      rb.resetTorques(true);
+      rb.setLinvel({ x: 0, y: AZ5_LAUNCH_SPEED, z: 0 }, true);
+      rb.setAngvel(
+        {
+          x: (Math.random() - 0.5) * 1.8,
+          y: (Math.random() - 0.5) * 0.5,
+          z: (Math.random() - 0.5) * 1.8,
+        },
+        true,
+      );
+
+      thermal.phase = "ejected";
+      thermal.ejectedAt = elapsedSeconds.current;
+      thermal.launchY = rb.translation().y;
+      thermal.launchSpeed = AZ5_LAUNCH_SPEED;
+      thermal.predictedRise = Number.POSITIVE_INFINITY;
+      thermal.recoverable = false;
+
+      rb.wakeUp();
+    }
+  });
+
+  useBeforePhysicsStep(() => {
     const index = pendingEjection.current;
     if (index === null) return;
 
@@ -613,6 +701,7 @@ function ReactorScene({
   sensitivity,
   smoothing,
   randomEjectionsEnabled,
+  az5TriggerToken,
   onRandomEjection,
   resetViewToken,
 }: ReactorSceneProps) {
@@ -643,6 +732,7 @@ function ReactorScene({
             sensitivity={sensitivity}
             smoothing={smoothing}
             randomEjectionsEnabled={randomEjectionsEnabled}
+            az5TriggerToken={az5TriggerToken}
             onRandomEjection={onRandomEjection}
           />
         </Physics>

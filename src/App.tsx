@@ -26,6 +26,7 @@ export default function App() {
   const [peakHz, setPeakHz] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [resetViewToken, setResetViewToken] = useState(0);
+  const [az5TriggerToken, setAz5TriggerToken] = useState(0);
   const [randomEjectionsEnabled, setRandomEjectionsEnabled] = useState(true);
   const [randomEjectionCount, setRandomEjectionCount] = useState(0);
   const [lastRandomEjection, setLastRandomEjection] = useState<number | null>(null);
@@ -121,6 +122,7 @@ export default function App() {
             sensitivity={sensitivity}
             smoothing={smoothing}
             randomEjectionsEnabled={randomEjectionsEnabled}
+            az5TriggerToken={az5TriggerToken}
             onRandomEjection={(channel) => {
               setRandomEjectionCount((value) => value + 1);
               setLastRandomEjection(channel);
@@ -399,6 +401,14 @@ export default function App() {
                   : `${randomEjectionCount} TOTAL · LAST CH-${lastRandomEjection}`}
               </strong>
             </div>
+
+            <button
+              className="az5-button"
+              type="button"
+              onClick={() => setAz5TriggerToken((value) => value + 1)}
+            >
+              AZ-5 / 全棒发射
+            </button>
 
             <button
               className="reset-physics"
