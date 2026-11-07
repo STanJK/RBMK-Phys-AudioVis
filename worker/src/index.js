@@ -1,6 +1,11 @@
-const UA =
+const CDN_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
   "(KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36";
+
+// Bilibili's WAF currently treats datacenter egress + desktop-browser UA
+// much more aggressively on metadata endpoints. A non-browser client UA
+// avoids the legacy view endpoint's HTTP 412 in current deployments.
+const API_UA = "okhttp/4.9.3";
 
 const API_ORIGIN = "https://api.bilibili.com";
 const BILI_REFERER = "https://www.bilibili.com/";
@@ -63,31 +68,50 @@ async function resolveAudio(request, requestUrl) {
     return json({ error: "invalid page" }, 400);
   }
 
-  const pageListUrl = new URL("/x/player/pagelist", API_ORIGIN);
-  pageListUrl.searchParams.set("bvid", bvid);
-  pageListUrl.searchParams.set("jsonp", "jsonp");
-
-  const pageList = await biliJson(pageListUrl);
-  if (pageList.code !== 0 || !Array.isArray(pageList.data)) {
-    throw new Error(`pagelist failed: ${pageList.message || pageList.code}`);
-  }
-
-  const selectedPage =
-    pageList.data.find((item) => Number(item.page) === page) ??
-    pageList.data[page - 1];
-
-  if (!selectedPage?.cid) {
-    return json({ error: `page P${page} not found` }, 404);
-  }
-
+  // Prefer /view because it already contains pages[] + cid. This removes one
+  // extra pagelist request and is materially less likely to trip Bilibili WAF.
   let view = null;
+  let pageList = null;
+
   try {
     const viewUrl = new URL("/x/web-interface/view", API_ORIGIN);
     viewUrl.searchParams.set("bvid", bvid);
-    const viewResult = await biliJson(viewUrl);
-    if (viewResult.code === 0) view = viewResult.data;
-  } catch {
-    // Metadata is optional; pagelist + playurl are sufficient to play.
+    const viewResult = await biliJson(viewUrl, "view");
+    if (viewResult.code !== 0 || !viewResult.data) {
+      throw new Error(`view business error: ${viewResult.message || viewResult.code}`);
+    }
+    view = viewResult.data;
+  } catch (error) {
+    // Keep pagelist as a metadata-minimal fallback. If both fail, preserve the
+    // first useful endpoint name in the error instead of returning a generic 412.
+    try {
+      const pageListUrl = new URL("/x/player/pagelist", API_ORIGIN);
+      pageListUrl.searchParams.set("bvid", bvid);
+      pageListUrl.searchParams.set("jsonp", "jsonp");
+      const result = await biliJson(pageListUrl, "pagelist");
+      if (result.code !== 0 || !Array.isArray(result.data)) {
+        throw new Error(`pagelist business error: ${result.message || result.code}`);
+      }
+      pageList = result.data;
+    } catch (fallbackError) {
+      throw new Error(
+        `metadata failed; primary: ${errorMessage(error)}; fallback: ${errorMessage(fallbackError)}`,
+      );
+    }
+  }
+
+  const pages = Array.isArray(view?.pages)
+    ? view.pages
+    : Array.isArray(pageList)
+      ? pageList
+      : [];
+
+  const selectedPage =
+    pages.find((item) => Number(item.page) === page) ??
+    pages[page - 1];
+
+  if (!selectedPage?.cid) {
+    return json({ error: `page P${page} not found` }, 404);
   }
 
   const playUrl = new URL("/x/player/playurl", API_ORIGIN);
@@ -98,7 +122,7 @@ async function resolveAudio(request, requestUrl) {
   playUrl.searchParams.set("fnval", "16");
   playUrl.searchParams.set("fourk", "1");
 
-  const play = await biliJson(playUrl);
+  const play = await biliJson(playUrl, "playurl-dash");
 
   let sourceUrl = null;
   let strategy = null;
@@ -127,13 +151,16 @@ async function resolveAudio(request, requestUrl) {
     fallbackUrl.searchParams.set("platform", "html5");
     fallbackUrl.searchParams.set("high_quality", "1");
 
-    const fallback = await biliJson(fallbackUrl);
-    sourceUrl = fallback.code === 0 ? fallback.data?.durl?.[0]?.url ?? null : null;
+    const fallback = await biliJson(fallbackUrl, "playurl-html5");
+    sourceUrl =
+      fallback.code === 0 ? fallback.data?.durl?.[0]?.url ?? null : null;
     if (sourceUrl) strategy = "durl-mp4";
   }
 
   if (!sourceUrl || !strategy) {
-    throw new Error(`playurl returned no playable public audio: ${play.message || play.code}`);
+    throw new Error(
+      `playurl returned no playable public audio: ${play.message || play.code}`,
+    );
   }
 
   assertAllowedStreamUrl(sourceUrl);
@@ -163,6 +190,7 @@ async function resolveAudio(request, requestUrl) {
   });
 }
 
+
 async function proxyStream(request, requestUrl) {
   const target = requestUrl.searchParams.get("url");
   if (!target) return json({ error: "missing url" }, 400);
@@ -170,7 +198,7 @@ async function proxyStream(request, requestUrl) {
   const targetUrl = assertAllowedStreamUrl(target);
 
   const headers = new Headers();
-  headers.set("User-Agent", UA);
+  headers.set("User-Agent", CDN_UA);
   headers.set("Referer", BILI_REFERER);
   headers.set("Origin", "https://www.bilibili.com");
   headers.set("Accept", request.headers.get("Accept") || "*/*");
@@ -209,10 +237,10 @@ async function proxyStream(request, requestUrl) {
   });
 }
 
-async function biliJson(url) {
+async function biliJson(url, label = "api") {
   const response = await fetch(url, {
     headers: {
-      "User-Agent": UA,
+      "User-Agent": API_UA,
       Referer: BILI_REFERER,
       Origin: "https://www.bilibili.com",
       Accept: "application/json, text/plain, */*",
@@ -221,7 +249,7 @@ async function biliJson(url) {
   });
 
   if (!response.ok) {
-    throw new Error(`Bilibili API HTTP ${response.status}`);
+    throw new Error(`${label} HTTP ${response.status}`);
   }
 
   const contentType = response.headers.get("content-type") || "";
@@ -276,4 +304,9 @@ function json(body, status = 200) {
 
 function methodNotAllowed() {
   return json({ error: "method not allowed" }, 405);
+}
+
+
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
 }
