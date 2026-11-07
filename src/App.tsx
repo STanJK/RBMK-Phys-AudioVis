@@ -59,7 +59,9 @@ export default function App() {
 
   const duration = audio.duration ?? engine.durationSeconds;
   const seekValue =
-    audio.mode === "file" && duration && duration > 0
+    (audio.mode === "file" || audio.mode === "bilibili") &&
+    duration &&
+    duration > 0
       ? Math.min(100, (elapsed / duration) * 100)
       : 0;
 
@@ -184,7 +186,7 @@ export default function App() {
                 className={showBilibili ? "selected" : ""}
                 onClick={() => {
                   setShowBilibili(true);
-                  engine.selectTabSource("BILIBILI / 等待视频链接");
+                  engine.selectBilibiliIdle();
                 }}
               >
                 B站
@@ -192,10 +194,7 @@ export default function App() {
             </div>
 
             {showBilibili ? (
-              <BilibiliSource
-                engine={engine}
-                capturing={audio.mode === "tab" && audio.playing}
-              />
+              <BilibiliSource engine={engine} />
             ) : (
               <>
                 <button
@@ -219,47 +218,57 @@ export default function App() {
                     event.currentTarget.value = "";
                   }}
                 />
-
-                <div className="track">
-                  <span className="track-icon">≋</span>
-                  <div>
-                    <strong>{audio.trackName}</strong>
-                    <small>
-                      {audio.playing
-                        ? "固定长度棒阵列随频谱实时升降"
-                        : "点击播放，启动声场"}
-                    </small>
-                  </div>
-                  <button
-                    type="button"
-                    className="play"
-                    aria-label={audio.playing ? "暂停" : "播放"}
-                    onClick={() => void engine.toggle()}
-                  >
-                    {audio.playing ? "Ⅱ" : "▶"}
-                  </button>
-                </div>
-
-                <div className="timeline">
-                  <input
-                    aria-label="播放进度"
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={seekValue}
-                    step="0.1"
-                    disabled={audio.mode !== "file"}
-                    onChange={(event) =>
-                      void engine.seek(Number(event.target.value))
-                    }
-                  />
-                  <div>
-                    <span>{formatTime(elapsed)}</span>
-                    <span>{duration ? formatTime(duration) : "DEMO / LOOP"}</span>
-                  </div>
-                </div>
               </>
             )}
+
+            <div className="track">
+              <span className="track-icon">≋</span>
+              <div>
+                <strong>{audio.trackName}</strong>
+                <small>
+                  {audio.playing
+                    ? "固定长度棒阵列随频谱实时升降"
+                    : audio.mode === "bilibili"
+                      ? "解析完成后点击播放"
+                      : "点击播放，启动声场"}
+                </small>
+              </div>
+              <button
+                type="button"
+                className="play"
+                aria-label={audio.playing ? "暂停" : "播放"}
+                onClick={() => void engine.toggle()}
+              >
+                {audio.playing ? "Ⅱ" : "▶"}
+              </button>
+            </div>
+
+            <div className="timeline">
+              <input
+                aria-label="播放进度"
+                type="range"
+                min="0"
+                max="100"
+                value={seekValue}
+                step="0.1"
+                disabled={
+                  audio.mode !== "file" && audio.mode !== "bilibili"
+                }
+                onChange={(event) =>
+                  void engine.seek(Number(event.target.value))
+                }
+              />
+              <div>
+                <span>{formatTime(elapsed)}</span>
+                <span>
+                  {duration
+                    ? formatTime(duration)
+                    : audio.mode === "bilibili"
+                      ? "BILIBILI"
+                      : "DEMO / LOOP"}
+                </span>
+              </div>
+            </div>
           </section>
 
           <section>

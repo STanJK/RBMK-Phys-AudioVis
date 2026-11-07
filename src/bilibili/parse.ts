@@ -11,12 +11,14 @@ export function parseBilibiliInput(input: string): BilibiliVideoRef {
   }
 
   if (/b23\.tv/i.test(value)) {
-    throw new Error("b23.tv 短链无法在纯前端可靠展开；请先打开短链，再复制完整 bilibili.com 视频地址");
+    throw new Error(
+      "b23.tv 短链暂不直接解析；请先打开短链，再复制完整 bilibili.com 视频地址",
+    );
   }
 
-  const bvid = value.match(/BV[0-9A-Za-z]{10}/i)?.[0];
+  const bvid = value.match(/BV[0-9A-Za-z]{10}/)?.[0];
   if (!bvid) {
-    throw new Error("没有找到有效的 BV 号");
+    throw new Error("没有找到有效的 BV 号；BV 号区分大小写");
   }
 
   let page = 1;
@@ -30,21 +32,5 @@ export function parseBilibiliInput(input: string): BilibiliVideoRef {
     if (Number.isInteger(p) && p > 0) page = p;
   }
 
-  return {
-    bvid,
-    page,
-  };
-}
-
-export function buildBilibiliEmbedUrl(ref: BilibiliVideoRef): string {
-  const params = new URLSearchParams({
-    bvid: ref.bvid,
-    p: String(ref.page),
-    autoplay: "0",
-    muted: "0",
-    danmaku: "0",
-    poster: "1",
-  });
-
-  return `https://player.bilibili.com/player.html?${params.toString()}`;
+  return { bvid, page };
 }

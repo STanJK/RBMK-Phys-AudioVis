@@ -660,8 +660,21 @@ footer span:nth-child(2) {
 }
 
 
+
 .bilibili-source {
   margin-top: 14px;
+}
+
+.worker-config {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 9px;
+}
+
+.worker-config label {
+  font: 10px monospace;
+  letter-spacing: 0.08em;
+  color: #697461;
 }
 
 .bili-input-row {
@@ -684,8 +697,8 @@ footer span:nth-child(2) {
   color: #667060;
 }
 
-.bili-input-row button,
-.capture-tab {
+.bili-input-row button {
+  min-width: 62px;
   border: 1px solid #4b5545;
   background: #293126;
   color: #d8dfca;
@@ -693,9 +706,13 @@ footer span:nth-child(2) {
   font-size: 12px;
 }
 
-.bili-input-row button:hover,
-.capture-tab:hover {
+.bili-input-row button:hover:not(:disabled) {
   border-color: var(--accent);
+}
+
+.bili-input-row button:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 .bili-error {
@@ -705,35 +722,30 @@ footer span:nth-child(2) {
   line-height: 1.5;
 }
 
-.bili-player {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  margin-top: 12px;
-  overflow: hidden;
+.bili-meta {
+  display: grid;
+  gap: 5px;
+  margin-top: 11px;
+  padding: 10px 11px;
   border: 1px solid #333b31;
-  background: #090c0a;
+  background: #111612;
 }
 
-.bili-player iframe {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  border: 0;
+.bili-meta strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 500;
+  color: #dce3d3;
 }
 
-.capture-tab {
-  width: 100%;
-  min-height: 40px;
-  margin-top: 10px;
-  font: 12px monospace;
-}
-
-.capture-tab.active {
-  border-color: #9e7552;
-  background: #5a3d2d;
-  color: #ffe6d8;
+.bili-meta span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 10px monospace;
+  color: #7f8a78;
 }
 
 .bili-help {

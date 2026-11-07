@@ -16,8 +16,8 @@ The React audio/control layer preserves the reference visualizer's behavior:
 - built-in demo signal
 - microphone capture
 - local audio file import
-- Bilibili URL / BV input via the official external player
-- browser tab-audio capture into the same Web Audio analyser
+- Bilibili URL / BV input through a thin Cloudflare Worker resolver/proxy
+- direct HTMLAudioElement -> Web Audio analyser path for Bilibili audio
 - play / pause / seek
 - sensitivity, smoothing and playback volume controls
 - 48-band spectrum display
@@ -63,4 +63,8 @@ This is an audiovisual toy, not a reactor simulation.
 
 ### Bilibili source
 
-The static GitHub Pages build does not resolve Bilibili CDN media URLs directly. Instead it uses Bilibili's official external iframe player and the browser's display-capture audio track. In Chrome/Edge, choose the current tab and enable tab-audio sharing when prompted.
+GitHub Pages remains static. A small Cloudflare Worker in [worker/](worker/) resolves public Bilibili `bvid + p` metadata to a DASH audio track and proxies the Bilibili CDN stream with Range/CORS support.
+
+The browser then plays the Worker stream through an `HTMLAudioElement`, routes it into the existing Web Audio analyser, and applies the normal playback-volume slider. No screen/tab capture is used.
+
+The Bilibili panel accepts a Worker URL at runtime and stores it in localStorage, so the Pages site does not need to be rebuilt when the Worker endpoint changes.

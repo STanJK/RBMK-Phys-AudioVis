@@ -1,4 +1,4 @@
-export type AudioMode = "demo" | "mic" | "file" | "tab";
+export type AudioMode = "demo" | "mic" | "file" | "bilibili";
 
 export interface AudioEngineState {
   mode: AudioMode;
@@ -8,27 +8,35 @@ export interface AudioEngineState {
   message: string;
 }
 
-type Listener = (state: AudioEngineState) => void;
+export interface RemoteAudioSource {
+  streamUrl: string;
+  trackName: string;
+  duration: number | null;
+}
 
-type DisplayCaptureOptions = DisplayMediaStreamOptions & {
-  preferCurrentTab?: boolean;
-  selfBrowserSurface?: "include" | "exclude";
-  systemAudio?: "include" | "exclude";
-};
+type Listener = (state: AudioEngineState) => void;
 
 export class AudioEngine {
   private context: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
   private master: GainNode | null = null;
+
   private buffer: AudioBuffer | null = null;
   private bufferSource: AudioBufferSourceNode | null = null;
-  private mediaSource: MediaStreamAudioSourceNode | null = null;
-  private stream: MediaStream | null = null;
+
+  private micSource: MediaStreamAudioSourceNode | null = null;
+  private micStream: MediaStream | null = null;
+
+  private remoteAudio: HTMLAudioElement | null = null;
+  private remoteSource: MediaElementAudioSourceNode | null = null;
+
   private demoSources: AudioScheduledSourceNode[] = [];
   private listeners = new Set<Listener>();
+
   private startedAt = 0;
   private offset = 0;
   private volumePercent = 40;
+
   private state: AudioEngineState = {
     mode: "demo",
     playing: false,
@@ -52,10 +60,6 @@ export class AudioEngine {
     return { ...this.state };
   }
 
-  get ready() {
-    return this.context !== null;
-  }
-
   get sampleRate() {
     return this.context?.sampleRate ?? 48_000;
   }
@@ -65,12 +69,24 @@ export class AudioEngine {
   }
 
   get currentSeconds() {
+    if (this.state.mode === "bilibili" && this.remoteAudio) {
+      return Number.isFinite(this.remoteAudio.currentTime)
+        ? this.remoteAudio.currentTime
+        : 0;
+    }
+
     if (!this.state.playing || !this.context) return this.offset;
     return this.offset + (this.context.currentTime - this.startedAt);
   }
 
   get durationSeconds() {
-    return this.buffer?.duration ?? null;
+    if (this.state.mode === "bilibili" && this.remoteAudio) {
+      const duration = this.remoteAudio.duration;
+      if (Number.isFinite(duration) && duration > 0) return duration;
+      return this.state.duration;
+    }
+
+    return this.buffer?.duration ?? this.state.duration;
   }
 
   readFrequencyData() {
@@ -93,10 +109,7 @@ export class AudioEngine {
 
   setVolume(percent: number) {
     this.volumePercent = Math.min(100, Math.max(0, percent));
-
-    if (!this.master || !this.context || this.state.mode === "mic") {
-      return;
-    }
+    if (!this.master || !this.context || this.state.mode === "mic") return;
 
     this.master.gain.setTargetAtTime(
       this.volumePercent / 100,
@@ -131,109 +144,74 @@ export class AudioEngine {
     await this.start();
   }
 
-  selectTabSource(trackName = "BILIBILI / 标签页音频") {
+  selectBilibiliIdle() {
     this.stopAll(false);
     this.buffer = null;
     this.offset = 0;
     this.patch({
-      mode: "tab",
-      trackName,
+      mode: "bilibili",
+      trackName: "BILIBILI / 等待解析",
       duration: null,
-      message: "载入视频后，点击“捕获本标签页音频”。",
+      message: "粘贴 B 站链接或 BV 号，通过 Worker 解析公开音频流。",
     });
   }
 
-  async captureTabAudio() {
-    if (this.state.mode !== "tab") return;
-
-    this.stopPlaybackNodes();
+  async loadBilibili(source: RemoteAudioSource) {
+    this.stopAll(false);
+    this.buffer = null;
+    this.offset = 0;
 
     try {
       await this.ensureAudio();
 
-      if (!navigator.mediaDevices?.getDisplayMedia) {
-        throw new Error("display-capture-unsupported");
-      }
+      const media = new Audio();
+      media.crossOrigin = "anonymous";
+      media.preload = "metadata";
+      media.src = source.streamUrl;
 
-      const options: DisplayCaptureOptions = {
-        video: {
-          displaySurface: "browser",
-          frameRate: { ideal: 1, max: 2 },
-        },
-        audio: {
-          suppressLocalAudioPlayback: true,
-          restrictOwnAudio: false,
-        } as unknown as MediaTrackConstraints,
-        preferCurrentTab: true,
-        selfBrowserSurface: "include",
-        systemAudio: "exclude",
-      };
+      this.remoteAudio = media;
+      this.remoteSource = this.context!.createMediaElementSource(media);
+      this.remoteSource.connect(this.analyser!);
+      this.master!.gain.value = this.volumePercent / 100;
 
-      const stream = await navigator.mediaDevices.getDisplayMedia(options);
-      const audioTrack = stream.getAudioTracks()[0];
+      media.addEventListener("ended", () => {
+        if (this.state.mode === "bilibili") {
+          this.patch({ playing: false });
+        }
+      });
 
-      if (!audioTrack) {
-        stream.getTracks().forEach((track) => track.stop());
+      media.addEventListener("loadedmetadata", () => {
+        if (this.state.mode !== "bilibili") return;
+        const duration = Number.isFinite(media.duration)
+          ? media.duration
+          : source.duration;
+        this.patch({ duration: duration ?? null });
+      });
+
+      media.addEventListener("error", () => {
+        if (this.state.mode !== "bilibili") return;
         this.patch({
           playing: false,
           message:
-            "没有捕获到标签页音频。请选择“此标签页/当前标签页”，并勾选“共享标签页音频”。",
+            "B 站音频流加载失败。可能是播放地址过期或 Worker/CDN 请求被拒绝，请重新载入链接。",
         });
-        return;
-      }
+      });
 
-      const supported = navigator.mediaDevices.getSupportedConstraints() as
-        MediaTrackSupportedConstraints & {
-          suppressLocalAudioPlayback?: boolean;
-        };
+      media.load();
 
-      if (supported.suppressLocalAudioPlayback) {
-        try {
-          await audioTrack.applyConstraints({
-            suppressLocalAudioPlayback: true,
-          } as unknown as MediaTrackConstraints);
-        } catch {
-          // The initial getDisplayMedia constraint may already have been applied.
-        }
-      }
-
-      this.stream = stream;
-      this.mediaSource = this.context!.createMediaStreamSource(stream);
-      this.mediaSource.connect(this.analyser!);
-
-      // Captured tab audio is replayed through our own Web Audio graph.
-      // This makes the existing volume slider the effective Bilibili volume.
-      this.master!.gain.value = this.volumePercent / 100;
-
-      const settings = audioTrack.getSettings() as MediaTrackSettings & {
-        suppressLocalAudioPlayback?: boolean;
-      };
-      const localPlaybackSuppressed =
-        settings.suppressLocalAudioPlayback === true;
-
-      audioTrack.onended = () => {
-        if (this.state.mode !== "tab") return;
-        this.stopPlaybackNodes();
-        this.patch({
-          playing: false,
-          message: "标签页音频捕获已结束。",
-        });
-      };
-
-      this.startedAt = this.context!.currentTime;
-      this.offset = 0;
       this.patch({
-        playing: true,
-        message: localPlaybackSuppressed
-          ? "正在捕获并通过 Web Audio 回放 B 站音频；下方“播放音量”滑条现在控制实际输出音量。"
-          : "已捕获标签页音频，但浏览器没有确认抑制原始本地播放；可能出现双重声音。推荐桌面版 Chrome/Edge。",
+        mode: "bilibili",
+        playing: false,
+        trackName: source.trackName,
+        duration: source.duration,
+        message: "B 站公开音频流已解析。点击播放启动 Web Audio 分析。",
       });
     } catch {
-      this.stopPlaybackNodes();
+      this.cleanupRemoteAudio();
       this.patch({
+        mode: "bilibili",
         playing: false,
-        message:
-          "无法捕获标签页音频。推荐使用桌面版 Chrome/Edge，并在共享窗口中选择当前标签页和“共享标签页音频”。",
+        message: "无法建立 B 站音频源，请检查 Worker 地址或重新解析。",
       });
     }
   }
@@ -261,24 +239,34 @@ export class AudioEngine {
   async toggle() {
     if (this.state.playing) {
       this.pause();
-      return;
+    } else {
+      await this.start();
     }
-
-    if (this.state.mode === "tab") {
-      await this.captureTabAudio();
-      return;
-    }
-
-    await this.start();
   }
 
   async seek(percent: number) {
+    const normalized = Math.min(100, Math.max(0, percent)) / 100;
+
+    if (this.state.mode === "bilibili" && this.remoteAudio) {
+      const duration = this.durationSeconds;
+      if (!duration || !Number.isFinite(duration)) return;
+
+      try {
+        this.remoteAudio.currentTime = normalized * duration;
+      } catch {
+        // Metadata/range may not be ready yet.
+      }
+      this.emit();
+      return;
+    }
+
     if (this.state.mode !== "file" || !this.buffer) return;
+
     const wasPlaying = this.state.playing;
     this.pause();
     this.offset = Math.min(
       this.buffer.duration,
-      Math.max(0, (percent / 100) * this.buffer.duration),
+      Math.max(0, normalized * this.buffer.duration),
     );
     this.emit();
     if (wasPlaying) await this.start();
@@ -287,6 +275,12 @@ export class AudioEngine {
   pause() {
     if (!this.state.playing) return;
 
+    if (this.state.mode === "bilibili" && this.remoteAudio) {
+      this.remoteAudio.pause();
+      this.patch({ playing: false });
+      return;
+    }
+
     if (this.context && this.state.mode === "file") {
       this.offset = Math.min(
         this.buffer?.duration ?? Number.POSITIVE_INFINITY,
@@ -294,7 +288,7 @@ export class AudioEngine {
       );
     }
 
-    this.stopPlaybackNodes();
+    this.stopTransientNodes();
     this.patch({ playing: false });
   }
 
@@ -314,7 +308,7 @@ export class AudioEngine {
       this.analyser.fftSize = 2048;
       this.analyser.smoothingTimeConstant = 0.75;
       this.master = this.context.createGain();
-      this.master.gain.value = 0.4;
+      this.master.gain.value = this.volumePercent / 100;
       this.analyser.connect(this.master);
       this.master.connect(this.context.destination);
     }
@@ -328,31 +322,46 @@ export class AudioEngine {
     try {
       await this.ensureAudio();
 
+      if (this.state.mode === "bilibili") {
+        if (!this.remoteAudio) {
+          this.patch({ message: "请先载入一个 B 站视频链接。" });
+          return;
+        }
+
+        this.master!.gain.value = this.volumePercent / 100;
+        await this.remoteAudio.play();
+        this.patch({
+          playing: true,
+          message: "正在播放并分析 B 站音频流。",
+        });
+        return;
+      }
+
       if (this.state.mode === "mic") {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        this.stream = stream;
-        this.mediaSource = this.context!.createMediaStreamSource(stream);
-        this.mediaSource.connect(this.analyser!);
+        this.micStream = stream;
+        this.micSource = this.context!.createMediaStreamSource(stream);
+        this.micSource.connect(this.analyser!);
         this.master!.gain.value = 0;
         this.patch({ message: "正在监听麦克风；切换输入或暂停即可关闭。" });
       } else if (this.state.mode === "file" && this.buffer) {
         if (this.offset >= this.buffer.duration) this.offset = 0;
 
-        this.master!.gain.value = 0.4;
+        this.master!.gain.value = this.volumePercent / 100;
         const source = this.context!.createBufferSource();
         source.buffer = this.buffer;
         source.connect(this.analyser!);
         source.onended = () => {
           if (this.state.playing && this.state.mode === "file") {
             this.offset = 0;
-            this.stopPlaybackNodes();
+            this.stopTransientNodes();
             this.patch({ playing: false });
           }
         };
         source.start(0, this.offset);
         this.bufferSource = source;
       } else {
-        this.master!.gain.value = 0.4;
+        this.master!.gain.value = this.volumePercent / 100;
         const frequencies = [55, 82.41, 110, 164.81, 220, 329.63, 440, 659.25];
 
         frequencies.forEach((frequency, index) => {
@@ -383,24 +392,27 @@ export class AudioEngine {
       this.startedAt = this.context!.currentTime;
       this.patch({ playing: true });
     } catch {
-      this.stopPlaybackNodes();
+      this.stopTransientNodes();
       this.patch({
         playing: false,
         message:
           this.state.mode === "mic"
             ? "无法访问麦克风，请检查浏览器权限，或导入音频。"
-            : "无法播放此音频，请尝试其他文件。",
+            : this.state.mode === "bilibili"
+              ? "B 站音频播放失败，请重新解析链接或检查 Worker。"
+              : "无法播放此音频，请尝试其他文件。",
       });
     }
   }
 
   private stopAll(resetOffset: boolean) {
-    this.stopPlaybackNodes();
+    this.stopTransientNodes();
+    this.cleanupRemoteAudio();
     if (resetOffset) this.offset = 0;
     this.patch({ playing: false });
   }
 
-  private stopPlaybackNodes() {
+  private stopTransientNodes() {
     if (this.bufferSource) {
       this.bufferSource.onended = null;
       try {
@@ -412,8 +424,8 @@ export class AudioEngine {
       this.bufferSource = null;
     }
 
-    this.mediaSource?.disconnect();
-    this.mediaSource = null;
+    this.micSource?.disconnect();
+    this.micSource = null;
 
     for (const source of this.demoSources) {
       try {
@@ -425,13 +437,22 @@ export class AudioEngine {
     }
     this.demoSources = [];
 
-    if (this.stream) {
-      this.stream.getTracks().forEach((track) => {
-        track.onended = null;
-        track.stop();
-      });
-      this.stream = null;
+    if (this.micStream) {
+      this.micStream.getTracks().forEach((track) => track.stop());
+      this.micStream = null;
     }
+  }
+
+  private cleanupRemoteAudio() {
+    if (this.remoteAudio) {
+      this.remoteAudio.pause();
+      this.remoteAudio.removeAttribute("src");
+      this.remoteAudio.load();
+      this.remoteAudio = null;
+    }
+
+    this.remoteSource?.disconnect();
+    this.remoteSource = null;
   }
 
   private patch(next: Partial<AudioEngineState>) {
