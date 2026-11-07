@@ -31,7 +31,7 @@ export function parseBilibiliInput(input: string): BilibiliVideoRef {
   }
 
   return {
-    bvid: bvid.toUpperCase(),
+    bvid,
     page,
   };
 }
