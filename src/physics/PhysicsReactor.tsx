@@ -1214,6 +1214,7 @@ function GuidedRodField({
             },
             true,
           );
+          rb.setGravityScale(1, true);
           rb.setLinvel(
             {
               x: 0,
@@ -1614,6 +1615,7 @@ function GuidedRodField({
         true,
       );
       rb.recomputeMassPropertiesFromColliders();
+      rb.setGravityScale(3, true);
       rb.enableCcd(true);
       rb.resetForces(true);
       rb.resetTorques(true);
