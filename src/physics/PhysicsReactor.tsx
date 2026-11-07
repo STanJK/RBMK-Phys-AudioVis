@@ -37,6 +37,7 @@ import {
   smoothRodHeight,
 } from "../audio/rodResponse";
 import {
+  AZ5_LAUNCH_MULTIPLIER,
   AZ5_MIN_LAUNCH_SPEED,
   AZ5_RAMP_SECONDS,
   CONTAINMENT_LOWER_WALL_HEIGHT,
@@ -1582,7 +1583,7 @@ function GuidedRodField({
       const launchSpeed = Math.max(
         AZ5_MIN_LAUNCH_SPEED,
         Math.max(0, entryVelocity) *
-          RANDOM_EJECTION_UPWARD_MULTIPLIER,
+          AZ5_LAUNCH_MULTIPLIER,
       );
 
       thermal.phase = "az5-falling";
