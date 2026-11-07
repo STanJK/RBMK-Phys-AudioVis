@@ -28,6 +28,7 @@ export class AudioEngine {
   private listeners = new Set<Listener>();
   private startedAt = 0;
   private offset = 0;
+  private volumePercent = 40;
   private state: AudioEngineState = {
     mode: "demo",
     playing: false,
@@ -91,17 +92,17 @@ export class AudioEngine {
   }
 
   setVolume(percent: number) {
-    if (
-      !this.master ||
-      !this.context ||
-      this.state.mode === "mic" ||
-      this.state.mode === "tab"
-    ) {
+    this.volumePercent = Math.min(100, Math.max(0, percent));
+
+    if (!this.master || !this.context || this.state.mode === "mic") {
       return;
     }
 
-    const value = Math.min(1, Math.max(0, percent / 100));
-    this.master.gain.setTargetAtTime(value, this.context.currentTime, 0.03);
+    this.master.gain.setTargetAtTime(
+      this.volumePercent / 100,
+      this.context.currentTime,
+      0.03,
+    );
   }
 
   async selectDemo() {
@@ -160,7 +161,8 @@ export class AudioEngine {
           frameRate: { ideal: 1, max: 2 },
         },
         audio: {
-          suppressLocalAudioPlayback: false,
+          suppressLocalAudioPlayback: true,
+          restrictOwnAudio: false,
         } as unknown as MediaTrackConstraints,
         preferCurrentTab: true,
         selfBrowserSurface: "include",
@@ -180,13 +182,28 @@ export class AudioEngine {
         return;
       }
 
+      const supported = navigator.mediaDevices.getSupportedConstraints();
+
+      if (supported.suppressLocalAudioPlayback) {
+        try {
+          await audioTrack.applyConstraints({
+            suppressLocalAudioPlayback: true,
+          } as unknown as MediaTrackConstraints);
+        } catch {
+          // The initial getDisplayMedia constraint may already have been applied.
+        }
+      }
+
       this.stream = stream;
       this.mediaSource = this.context!.createMediaStreamSource(stream);
       this.mediaSource.connect(this.analyser!);
 
-      // The embedded Bilibili player already plays locally. Keep the capture
-      // path analysis-only to avoid double playback or feedback.
-      this.master!.gain.value = 0;
+      // Captured tab audio is replayed through our own Web Audio graph.
+      // This makes the existing volume slider the effective Bilibili volume.
+      this.master!.gain.value = this.volumePercent / 100;
+
+      const localPlaybackSuppressed =
+        audioTrack.getSettings().suppressLocalAudioPlayback === true;
 
       audioTrack.onended = () => {
         if (this.state.mode !== "tab") return;
@@ -201,8 +218,9 @@ export class AudioEngine {
       this.offset = 0;
       this.patch({
         playing: true,
-        message:
-          "正在分析 B 站播放器的标签页音频。播放器本身的音量请在 B 站播放器内调整。",
+        message: localPlaybackSuppressed
+          ? "正在捕获并通过 Web Audio 回放 B 站音频；下方“播放音量”滑条现在控制实际输出音量。"
+          : "已捕获标签页音频，但浏览器没有确认抑制原始本地播放；可能出现双重声音。推荐桌面版 Chrome/Edge。",
       });
     } catch {
       this.stopPlaybackNodes();
