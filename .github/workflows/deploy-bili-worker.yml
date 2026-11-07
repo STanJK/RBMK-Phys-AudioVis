@@ -38,14 +38,29 @@ jobs:
           echo "::endgroup::"
 
           echo "::group::resolve smoke"
-          RESOLVE_JSON="$(curl --fail-with-body --silent --show-error "$DEPLOYMENT_URL/resolve?bvid=BV1VGYR6bECg&p=1")"
-          echo "$RESOLVE_JSON"
+          RESOLVE_BODY="$(mktemp)"
+          RESOLVE_STATUS="$(curl             --silent             --show-error             --retry 4             --retry-delay 2             --retry-max-time 30             --output "$RESOLVE_BODY"             --write-out '%{http_code}'             "$DEPLOYMENT_URL/resolve?bvid=BV1VGYR6bECg&p=1" || true)"
+          echo "HTTP $RESOLVE_STATUS"
+          cat "$RESOLVE_BODY"
+          echo
+          if [ "$RESOLVE_STATUS" -lt 200 ] || [ "$RESOLVE_STATUS" -ge 300 ]; then
+            echo "::error::resolve smoke failed with HTTP $RESOLVE_STATUS"
+            rm -f "$RESOLVE_BODY"
+            exit 1
+          fi
+          RESOLVE_JSON="$(cat "$RESOLVE_BODY")"
+          rm -f "$RESOLVE_BODY"
           STREAM_URL="$(printf '%s' "$RESOLVE_JSON" | jq -r '.streamUrl // empty')"
           test -n "$STREAM_URL"
           echo "::endgroup::"
 
           echo "::group::stream smoke"
-          curl --fail-with-body --silent --show-error             --range 0-0             --output /dev/null             "$STREAM_URL"
+          STREAM_STATUS="$(curl             --silent             --show-error             --retry 3             --retry-delay 2             --retry-max-time 20             --range 0-0             --output /dev/null             --write-out '%{http_code}'             "$STREAM_URL" || true)"
+          echo "HTTP $STREAM_STATUS"
+          if [ "$STREAM_STATUS" -lt 200 ] || [ "$STREAM_STATUS" -ge 400 ]; then
+            echo "::error::stream smoke failed with HTTP $STREAM_STATUS"
+            exit 1
+          fi
           echo "stream range request ok"
           echo "::endgroup::"
 
