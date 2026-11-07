@@ -1150,6 +1150,30 @@ function GuidedRodField({
     enforceRodPairCollisionBudget(bodies);
     enforceFarCollisionBudget(bodies, elapsed);
 
+    let availableAz5PairCollisionSlots =
+      MAX_ROD_PAIR_COLLIDING_RODS;
+
+    for (
+      let index = 0;
+      index < guidedRods.length && index < bodies.length;
+      index += 1
+    ) {
+      const rb = bodies[index];
+      if (
+        detachedIndices.current.has(index) &&
+        !collisionDisabledIndices.current.has(index) &&
+        !rodPairCollisionDisabledIndices.current.has(index) &&
+        rb?.isDynamic()
+      ) {
+        availableAz5PairCollisionSlots -= 1;
+      }
+    }
+
+    availableAz5PairCollisionSlots = Math.max(
+      0,
+      availableAz5PairCollisionSlots,
+    );
+
     for (
       let index = 0;
       index < guidedRods.length && index < bodies.length;
@@ -1219,6 +1243,17 @@ function GuidedRodField({
             Math.abs(thermal.launchSpeed),
           );
           thermal.launchSpeed = finalLaunchSpeed;
+
+          if (
+            !collisionDisabledIndices.current.has(index) &&
+            availableAz5PairCollisionSlots > 0
+          ) {
+            rodPairCollisionDisabledIndices.current.delete(index);
+            availableAz5PairCollisionSlots -= 1;
+          } else {
+            rodPairCollisionDisabledIndices.current.add(index);
+          }
+          applyRodCollisionMode(index, rb);
 
           rb.setGravityScale(1, true);
           rb.setLinvel(
@@ -1525,9 +1560,6 @@ function GuidedRodField({
     az5EjectAt.current = null;
     az5StartAt.current = null;
 
-    const transitionIndices: number[] = [];
-    let existingPairCollisionCount = 0;
-
     for (
       let index = 0;
       index < guidedRods.length &&
@@ -1535,56 +1567,18 @@ function GuidedRodField({
       index += 1
     ) {
       const rb = rigidBodies.current[index];
-
-      if (
-        detachedIndices.current.has(index) &&
-        !collisionDisabledIndices.current.has(index) &&
-        !rodPairCollisionDisabledIndices.current.has(index) &&
-        rb?.isDynamic()
-      ) {
-        existingPairCollisionCount += 1;
-      }
-
-      const thermal = thermalStates.current[index];
-      if (
-        !everFullyEjectedIndices.current.has(index) &&
-        thermal?.phase === "heating"
-      ) {
-        transitionIndices.push(index);
-      }
-    }
-
-    const shuffledTransitionIndices = [...transitionIndices];
-    for (
-      let index = shuffledTransitionIndices.length - 1;
-      index > 0;
-      index -= 1
-    ) {
-      const swapIndex = Math.floor(Math.random() * (index + 1));
-      const value = shuffledTransitionIndices[index];
-      shuffledTransitionIndices[index] =
-        shuffledTransitionIndices[swapIndex];
-      shuffledTransitionIndices[swapIndex] = value;
-    }
-
-    let availablePairCollisionSlots = Math.max(
-      0,
-      MAX_ROD_PAIR_COLLIDING_RODS -
-        existingPairCollisionCount,
-    );
-    const pairCollisionAllowed = new Set(
-      shuffledTransitionIndices.slice(
-        0,
-        availablePairCollisionSlots,
-      ),
-    );
-
-    for (const index of transitionIndices) {
-      const rb = rigidBodies.current[index];
       const rod = guidedRods[index];
       const thermal = thermalStates.current[index];
 
-      if (!rb || !rod || !thermal) continue;
+      if (
+        !rb ||
+        !rod ||
+        !thermal ||
+        everFullyEjectedIndices.current.has(index) ||
+        thermal.phase !== "heating"
+      ) {
+        continue;
+      }
 
       const entryVelocity = verticalVelocities.current[index];
       const launchSpeed = Math.max(
@@ -1602,26 +1596,18 @@ function GuidedRodField({
 
       detachedIndices.current.add(index);
 
-      if (pairCollisionAllowed.has(index)) {
-        rodPairCollisionDisabledIndices.current.delete(index);
-        availablePairCollisionSlots = Math.max(
-          0,
-          availablePairCollisionSlots - 1,
-        );
-      } else {
-        rodPairCollisionDisabledIndices.current.add(index);
-      }
+      // During pre-launch free fall, rods only collide with the
+      // environment. This prevents already-launched rods from
+      // kicking waiting rods out of their channels.
+      rodPairCollisionDisabledIndices.current.add(index);
       applyRodCollisionMode(index, rb);
 
-      // Preserve the exact Rapier transform at the AZ5 handoff.
-      // Reconstructing Y from heights.current here can snap the rod
-      // before the free-fall phase begins.
       rb.setBodyType(
         rapier.RigidBodyType.Dynamic,
         true,
       );
       rb.recomputeMassPropertiesFromColliders();
-      rb.setGravityScale(3, true);
+      rb.setGravityScale(5, true);
       rb.enableCcd(true);
       rb.resetForces(true);
       rb.resetTorques(true);
