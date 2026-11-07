@@ -7,6 +7,11 @@ on:
     paths:
       - "worker/**"
       - ".github/workflows/deploy-bili-worker.yml"
+  push:
+    branches: ["main"]
+    paths:
+      - "worker/**"
+      - ".github/workflows/deploy-bili-worker.yml"
 
 permissions:
   contents: read
@@ -44,6 +49,11 @@ jobs:
 
           echo "::group::diagnose"
           curl --silent --show-error "$DEPLOYMENT_URL/diagnose?bvid=BV1VGYR6bECg"
+          echo
+          echo "::endgroup::"
+
+          echo "::group::mobile host probe"
+          curl --fail-with-body --silent --show-error "$DEPLOYMENT_URL/diag/mobile"
           echo
           echo "::endgroup::"
 

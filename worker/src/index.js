@@ -48,6 +48,25 @@ export default {
         });
       }
 
+      if (url.pathname === "/diag/mobile") {
+        const target = new URL("https://app.bilibili.com/x/v2/view");
+        target.searchParams.set("aid", "170001");
+        target.searchParams.set("appkey", "1d8b6e7d45233436");
+        const upstream = await fetch(target, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 BiliDroid/8.0.0",
+            Accept: "application/json",
+          },
+          redirect: "follow",
+        });
+        const body = await upstream.text();
+        return json({
+          status: upstream.status,
+          contentType: upstream.headers.get("content-type"),
+          bodyPreview: body.slice(0, 500),
+        });
+      }
+
       if (url.pathname === "/resolve") {
         if (request.method !== "GET") return methodNotAllowed();
         return await resolveAudio(request, url);
