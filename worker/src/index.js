@@ -5,12 +5,6 @@ const CDN_UA =
 const API_UA = "okhttp/4.9.3";
 const API_ORIGIN = "https://api.bilibili.com";
 const BILI_REFERER = "https://www.bilibili.com/";
-const APP_KEY = "1d8b6e7d45233436";
-const APP_SECRET = "560c52ccd288fed045859ed18bffd973";
-const BILIDROID_UA = "Mozilla/5.0 BiliDroid/8.20.0 (bbcallen@gmail.com)";
-const BV_ALPHABET = "FcwAPNKTMug3GV5Lj7EJnHpWsx4tb8haYeviqBz6rkCy12mUSDQX9RdoZf";
-const BV_XOR = 23442827791579n;
-const BV_MASK = 2251799813685247n;
 
 const WBI_MIXIN_TABLE = [
   46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35,
@@ -72,11 +66,6 @@ export default {
         return await resolveAudio(request, url);
       }
 
-      if (url.pathname === "/diagnose") {
-        if (request.method !== "GET") return methodNotAllowed();
-        return await diagnoseBilibili(url);
-      }
-
       if (url.pathname === "/stream") {
         if (request.method !== "GET" && request.method !== "HEAD") {
           return methodNotAllowed();
@@ -92,71 +81,6 @@ export default {
   },
 };
 
-
-async function diagnoseBilibili(requestUrl) {
-  const bvid = (requestUrl.searchParams.get("bvid") || "BV1VGYR6bECg").trim();
-
-  const aid = bvToAv(bvid);
-  const appViewAid = buildAppSignedUrl("https://app.bilibili.com/x/v2/view", {
-    aid: aid.toString(),
-    build: "8200300",
-    mobi_app: "android",
-    platform: "android",
-    ts: Math.floor(Date.now() / 1000),
-  });
-  const appViewBvid = buildAppSignedUrl("https://app.bilibili.com/x/v2/view", {
-    bvid,
-    build: "8200300",
-    mobi_app: "android",
-    platform: "android",
-    ts: Math.floor(Date.now() / 1000),
-  });
-
-  const targets = [
-    ["video-page", `https://www.bilibili.com/video/${bvid}/`, CDN_UA],
-    ["homepage", "https://www.bilibili.com/", CDN_UA],
-    ["api-nav", "https://api.bilibili.com/x/web-interface/nav", CDN_UA],
-    ["api-view", `https://api.bilibili.com/x/web-interface/view?bvid=${encodeURIComponent(bvid)}`, CDN_UA],
-    ["app-view-aid", appViewAid.toString(), BILIDROID_UA],
-    ["app-view-bvid", appViewBvid.toString(), BILIDROID_UA],
-  ];
-
-  const results = [];
-
-  for (const [name, target, userAgent] of targets) {
-    try {
-      const response = await fetch(target, {
-        headers: {
-          "User-Agent": userAgent,
-          Referer: BILI_REFERER,
-          Accept: name.includes("page") || name === "homepage"
-            ? "text/html,application/xhtml+xml"
-            : "application/json, text/plain, */*",
-          "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-        },
-        redirect: "manual",
-      });
-
-      const text = await response.text();
-      results.push({
-        name,
-        status: response.status,
-        location: response.headers.get("location"),
-        contentType: response.headers.get("content-type"),
-        hasInitialState: text.includes("__INITIAL_STATE__"),
-        hasPlayInfo: text.includes("__playinfo__"),
-        prefix: text.slice(0, 120),
-      });
-    } catch (error) {
-      results.push({
-        name,
-        error: errorMessage(error),
-      });
-    }
-  }
-
-  return json({ ok: true, bvid, results });
-}
 
 async function resolveAudio(request, requestUrl) {
   const bvid = (requestUrl.searchParams.get("bvid") || "").trim();
@@ -990,36 +914,4 @@ function md5(input) {
 
 function leftRotate(value, amount) {
   return ((value << amount) | (value >>> (32 - amount))) >>> 0;
-}
-
-
-function buildAppSignedUrl(base, params) {
-  const full = { ...params, appkey: APP_KEY };
-  const query = Object.entries(full)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`)
-    .join("&");
-  const sign = md5(query + APP_SECRET);
-  const url = new URL(base);
-  url.search = `${query}&sign=${sign}`;
-  return url;
-}
-
-function bvToAv(bvid) {
-  const chars = Array.from(bvid);
-  if (chars.length !== 12 || chars.slice(0, 3).join("") !== "BV1") {
-    throw new Error("unsupported bvid format");
-  }
-
-  [chars[3], chars[9]] = [chars[9], chars[3]];
-  [chars[4], chars[7]] = [chars[7], chars[4]];
-
-  let value = 0n;
-  for (const char of chars.slice(3)) {
-    const index = BV_ALPHABET.indexOf(char);
-    if (index < 0) throw new Error("invalid bvid character");
-    value = value * 58n + BigInt(index);
-  }
-
-  return (value & BV_MASK) ^ BV_XOR;
 }
