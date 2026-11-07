@@ -161,7 +161,7 @@ export class AudioEngine {
         },
         audio: {
           suppressLocalAudioPlayback: false,
-        },
+        } as unknown as MediaTrackConstraints,
         preferCurrentTab: true,
         selfBrowserSurface: "include",
         systemAudio: "exclude",
