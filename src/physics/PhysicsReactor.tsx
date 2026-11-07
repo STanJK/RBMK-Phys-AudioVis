@@ -14,6 +14,7 @@ import { OrbitControls } from "@react-three/drei";
 import {
   CuboidCollider,
   InstancedRigidBodies,
+  TrimeshCollider,
   Physics,
   RigidBody,
   useBeforePhysicsStep,
@@ -21,7 +22,12 @@ import {
   type InstancedRigidBodyProps,
   type RapierRigidBody,
 } from "@react-three/rapier";
-import { Color, type InstancedMesh } from "three";
+import {
+  BufferGeometry,
+  Color,
+  Float32BufferAttribute,
+  type InstancedMesh,
+} from "three";
 import type { AudioEngine } from "../audio/AudioEngine";
 import {
   MAX_SENSITIVITY,
@@ -32,9 +38,12 @@ import {
 import {
   AZ5_MIN_LAUNCH_SPEED,
   AZ5_RAMP_SECONDS,
+  CONTAINMENT_LOWER_WALL_HEIGHT,
   CONTAINMENT_WALL_HEIGHT,
   CONTAINMENT_WALL_RADIUS,
   CORE_TOP_Y,
+  EXTERNAL_GRID_SPACING,
+  EXTERNAL_GROUND_RADIUS,
   HEIGHT_LIMIT_Y,
   MAX_GUIDED_PROTRUSION,
   RANDOM_EJECTION_COOL_DELAY_SECONDS,
@@ -100,7 +109,13 @@ function CameraReset({ token }: { token: number }) {
   return null;
 }
 
-function ContainmentWall() {
+function CylindricalContainmentWall({
+  centerY,
+  height,
+}: {
+  centerY: number;
+  height: number;
+}) {
   const colliders = useMemo(() => {
     const circumference =
       Math.PI * 2 * CONTAINMENT_WALL_RADIUS;
@@ -114,7 +129,7 @@ function ContainmentWall() {
         key: index,
         position: [
           Math.cos(angle) * CONTAINMENT_WALL_RADIUS,
-          CORE_TOP_Y + CONTAINMENT_WALL_HEIGHT / 2,
+          centerY,
           Math.sin(angle) * CONTAINMENT_WALL_RADIUS,
         ] as [number, number, number],
         rotation: [
@@ -125,7 +140,7 @@ function ContainmentWall() {
         segmentLength,
       };
     });
-  }, []);
+  }, [centerY, height]);
 
   return (
     <RigidBody type="fixed" colliders={false}>
@@ -134,7 +149,7 @@ function ContainmentWall() {
           key={segment.key}
           args={[
             segment.segmentLength / 2,
-            CONTAINMENT_WALL_HEIGHT / 2,
+            height / 2,
             WALL_THICKNESS / 2,
           ]}
           position={segment.position}
@@ -144,6 +159,159 @@ function ContainmentWall() {
         />
       ))}
     </RigidBody>
+  );
+}
+
+function LowerContainmentWall() {
+  return (
+    <CylindricalContainmentWall
+      centerY={CORE_TOP_Y - CONTAINMENT_LOWER_WALL_HEIGHT / 2}
+      height={CONTAINMENT_LOWER_WALL_HEIGHT}
+    />
+  );
+}
+
+function UpperContainmentWall() {
+  return (
+    <CylindricalContainmentWall
+      centerY={CORE_TOP_Y + CONTAINMENT_WALL_HEIGHT / 2}
+      height={CONTAINMENT_WALL_HEIGHT}
+    />
+  );
+}
+
+function buildExternalGroundCollider() {
+  const segments = 192;
+  const vertices = new Float32Array((segments + 1) * 2 * 3);
+  const indices = new Uint32Array(segments * 6);
+
+  for (let index = 0; index <= segments; index += 1) {
+    const angle = (index / segments) * Math.PI * 2;
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const vertexOffset = index * 6;
+
+    vertices[vertexOffset] = cos * CONTAINMENT_WALL_RADIUS;
+    vertices[vertexOffset + 1] = CORE_TOP_Y;
+    vertices[vertexOffset + 2] = sin * CONTAINMENT_WALL_RADIUS;
+
+    vertices[vertexOffset + 3] = cos * EXTERNAL_GROUND_RADIUS;
+    vertices[vertexOffset + 4] = CORE_TOP_Y;
+    vertices[vertexOffset + 5] = sin * EXTERNAL_GROUND_RADIUS;
+  }
+
+  for (let index = 0; index < segments; index += 1) {
+    const inner = index * 2;
+    const outer = inner + 1;
+    const nextInner = inner + 2;
+    const nextOuter = inner + 3;
+    const triangleOffset = index * 6;
+
+    indices[triangleOffset] = inner;
+    indices[triangleOffset + 1] = nextOuter;
+    indices[triangleOffset + 2] = outer;
+    indices[triangleOffset + 3] = inner;
+    indices[triangleOffset + 4] = nextInner;
+    indices[triangleOffset + 5] = nextOuter;
+  }
+
+  return { vertices, indices };
+}
+
+function buildExternalGridGeometry() {
+  const positions: number[] = [];
+  const radius = EXTERNAL_GROUND_RADIUS;
+  const innerRadius = CONTAINMENT_WALL_RADIUS;
+  const spacing = EXTERNAL_GRID_SPACING;
+  const limit = Math.floor(radius / spacing);
+
+  const pushSegment = (
+    x1: number,
+    z1: number,
+    x2: number,
+    z2: number,
+  ) => {
+    const y = CORE_TOP_Y + 0.015;
+    positions.push(x1, y, z1, x2, y, z2);
+  };
+
+  for (let step = -limit; step <= limit; step += 1) {
+    const fixed = step * spacing;
+    if (Math.abs(fixed) >= radius) continue;
+
+    const outerSpan = Math.sqrt(
+      Math.max(0, radius * radius - fixed * fixed),
+    );
+
+    if (Math.abs(fixed) < innerRadius) {
+      const innerSpan = Math.sqrt(
+        Math.max(
+          0,
+          innerRadius * innerRadius - fixed * fixed,
+        ),
+      );
+
+      pushSegment(fixed, -outerSpan, fixed, -innerSpan);
+      pushSegment(fixed, innerSpan, fixed, outerSpan);
+      pushSegment(-outerSpan, fixed, -innerSpan, fixed);
+      pushSegment(innerSpan, fixed, outerSpan, fixed);
+    } else {
+      pushSegment(fixed, -outerSpan, fixed, outerSpan);
+      pushSegment(-outerSpan, fixed, outerSpan, fixed);
+    }
+  }
+
+  const geometry = new BufferGeometry();
+  geometry.setAttribute(
+    "position",
+    new Float32BufferAttribute(positions, 3),
+  );
+  return geometry;
+}
+
+function ExternalGround() {
+  const collider = useMemo(() => buildExternalGroundCollider(), []);
+  const gridGeometry = useMemo(() => buildExternalGridGeometry(), []);
+
+  useEffect(() => () => gridGeometry.dispose(), [gridGeometry]);
+
+  return (
+    <>
+      <mesh
+        receiveShadow
+        rotation={[-Math.PI / 2, 0, 0]}
+        position={[0, CORE_TOP_Y - 0.012, 0]}
+      >
+        <ringGeometry
+          args={[
+            CONTAINMENT_WALL_RADIUS,
+            EXTERNAL_GROUND_RADIUS,
+            192,
+          ]}
+        />
+        <meshStandardMaterial
+          color="#202522"
+          roughness={0.96}
+          metalness={0.04}
+        />
+      </mesh>
+
+      <lineSegments geometry={gridGeometry}>
+        <lineBasicMaterial
+          color="#555d58"
+          transparent
+          opacity={0.72}
+        />
+      </lineSegments>
+
+      <RigidBody type="fixed" colliders={false}>
+        <TrimeshCollider
+          args={[collider.vertices, collider.indices]}
+          friction={0.9}
+          restitution={0.08}
+        />
+      </RigidBody>
+    </>
   );
 }
 
@@ -164,7 +332,11 @@ function HeightLimitPlate() {
   );
 }
 
-function CoreBase() {
+function CoreBase({
+  upperWallEnabled,
+}: {
+  upperWallEnabled: boolean;
+}) {
   return (
     <>
       <mesh receiveShadow position={[0, CORE_TOP_Y - 0.25, 0]}>
@@ -189,17 +361,10 @@ function CoreBase() {
         />
       </mesh>
 
-      <ContainmentWall />
+      <LowerContainmentWall />
+      {upperWallEnabled && <UpperContainmentWall />}
+      <ExternalGround />
       <HeightLimitPlate />
-
-      <RigidBody type="fixed" colliders={false}>
-        <CuboidCollider
-          args={[18, 0.25, 18]}
-          position={[0, CORE_TOP_Y - ROD_LENGTH - 1.25, 0]}
-          friction={0.9}
-          restitution={0.06}
-        />
-      </RigidBody>
     </>
   );
 }
@@ -761,7 +926,7 @@ function ReactorScene({
 
       <Suspense fallback={null}>
         <Physics gravity={[0, -GRAVITY, 0]} colliders={false}>
-          <CoreBase />
+          <CoreBase upperWallEnabled={az5TriggerToken === 0} />
           <GuidedRodField
             engine={engine}
             sensitivity={sensitivity}

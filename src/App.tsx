@@ -66,6 +66,7 @@ export default function App() {
       : 0;
 
   const resetPhysics = () => {
+    setAz5TriggerToken(0);
     setRandomEjectionCount(0);
     setLastRandomEjection(null);
     setPhysicsEpoch((value) => value + 1);
@@ -369,7 +370,11 @@ export default function App() {
             <label className="caption">04 / 物理实验</label>
             <div className="physics-status">
               <span>AIR WALL</span>
-              <strong>2× ROD LENGTH / OPEN TOP</strong>
+              <strong>
+                {az5TriggerToken > 0
+                  ? "UPPER WALL BYPASSED / LOWER WALL ACTIVE"
+                  : "2× ROD LENGTH / LOWER WALL ACTIVE"}
+              </strong>
             </div>
 
             <div className="physics-status">
