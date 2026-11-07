@@ -17,10 +17,26 @@ export interface RemoteAudioSource {
 
 type Listener = (state: AudioEngineState) => void;
 
+const NORMALIZATION_TARGET_DB = -16;
+const NORMALIZATION_SILENCE_GATE_DB = -35;
+const NORMALIZATION_DEADBAND_DB = 1;
+const NORMALIZATION_MAX_BOOST_DB = 8;
+const NORMALIZATION_MAX_CUT_DB = -12;
+const NORMALIZATION_WINDOW_SECONDS = 3;
+const NORMALIZATION_ATTACK_SECONDS = 0.8;
+const NORMALIZATION_RELEASE_SECONDS = 4;
+const NORMALIZATION_UPDATE_MS = 100;
+
 export class AudioEngine {
   private context: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
+  private loudnessMeter: AnalyserNode | null = null;
+  private normalizer: GainNode | null = null;
   private master: GainNode | null = null;
+  private normalizationTimer: number | null = null;
+  private normalizationPower = 0;
+  private normalizationGainDb = 0;
+  private readonly normalizationWave = new Float32Array(2048);
 
   private buffer: AudioBuffer | null = null;
   private bufferSource: AudioBufferSourceNode | null = null;
@@ -190,7 +206,8 @@ export class AudioEngine {
       this.remoteResumeAfterFallback = false;
 
       this.remoteSource = this.context!.createMediaElementSource(media);
-      this.remoteSource.connect(this.analyser!);
+      this.connectNormalizableSource(this.remoteSource);
+      this.resetNormalization();
       this.master!.gain.value = this.volumePercent / 100;
 
       media.onended = () => {
@@ -390,20 +407,43 @@ export class AudioEngine {
     void this.context?.close();
     this.context = null;
     this.analyser = null;
+    this.loudnessMeter = null;
+    this.normalizer = null;
     this.master = null;
+    if (this.normalizationTimer !== null) {
+      window.clearInterval(this.normalizationTimer);
+      this.normalizationTimer = null;
+    }
     this.listeners.clear();
   }
 
   private async ensureAudio() {
     if (!this.context) {
       this.context = new AudioContext();
+
+      this.loudnessMeter = this.context.createAnalyser();
+      this.loudnessMeter.fftSize = 2048;
+      this.loudnessMeter.smoothingTimeConstant = 0;
+
+      this.normalizer = this.context.createGain();
+      this.normalizer.gain.value = 1;
+
       this.analyser = this.context.createAnalyser();
       this.analyser.fftSize = 2048;
       this.analyser.smoothingTimeConstant = 0.75;
+
       this.master = this.context.createGain();
       this.master.gain.value = this.volumePercent / 100;
+
+      this.loudnessMeter.connect(this.normalizer);
+      this.normalizer.connect(this.analyser);
       this.analyser.connect(this.master);
       this.master.connect(this.context.destination);
+
+      this.normalizationTimer = window.setInterval(
+        () => this.updateNormalization(),
+        NORMALIZATION_UPDATE_MS,
+      );
     }
 
     await this.context.resume();
@@ -446,7 +486,8 @@ export class AudioEngine {
         this.master!.gain.value = this.volumePercent / 100;
         const source = this.context!.createBufferSource();
         source.buffer = this.buffer;
-        source.connect(this.analyser!);
+        this.connectNormalizableSource(source);
+        this.resetNormalization();
         source.onended = () => {
           if (this.state.playing && this.state.mode === "file") {
             this.offset = 0;
@@ -499,6 +540,84 @@ export class AudioEngine {
               : "无法播放此音频，请尝试其他文件。",
       });
     }
+  }
+
+  private connectNormalizableSource(source: AudioNode) {
+    source.connect(this.loudnessMeter!);
+  }
+
+  private resetNormalization() {
+    this.normalizationPower = 0;
+    this.normalizationGainDb = 0;
+
+    if (this.normalizer && this.context) {
+      this.normalizer.gain.cancelScheduledValues(this.context.currentTime);
+      this.normalizer.gain.setValueAtTime(1, this.context.currentTime);
+    }
+  }
+
+  private updateNormalization() {
+    if (
+      !this.context ||
+      !this.loudnessMeter ||
+      !this.normalizer ||
+      !this.state.playing ||
+      (this.state.mode !== "bilibili" && this.state.mode !== "file")
+    ) {
+      return;
+    }
+
+    this.loudnessMeter.getFloatTimeDomainData(this.normalizationWave);
+
+    let power = 0;
+    for (let index = 0; index < this.normalizationWave.length; index += 1) {
+      const sample = this.normalizationWave[index];
+      power += sample * sample;
+    }
+    power /= this.normalizationWave.length;
+
+    const dt = NORMALIZATION_UPDATE_MS / 1000;
+    const alpha = 1 - Math.exp(-dt / NORMALIZATION_WINDOW_SECONDS);
+    this.normalizationPower +=
+      (power - this.normalizationPower) * alpha;
+
+    const rmsDb =
+      10 * Math.log10(Math.max(this.normalizationPower, 1e-12));
+
+    if (rmsDb < NORMALIZATION_SILENCE_GATE_DB) return;
+
+    let desiredGainDb = NORMALIZATION_TARGET_DB - rmsDb;
+    desiredGainDb = Math.min(
+      NORMALIZATION_MAX_BOOST_DB,
+      Math.max(NORMALIZATION_MAX_CUT_DB, desiredGainDb),
+    );
+
+    if (
+      Math.abs(desiredGainDb - this.normalizationGainDb) <
+      NORMALIZATION_DEADBAND_DB
+    ) {
+      return;
+    }
+
+    const timeConstant =
+      desiredGainDb < this.normalizationGainDb
+        ? NORMALIZATION_ATTACK_SECONDS
+        : NORMALIZATION_RELEASE_SECONDS;
+    const gainAlpha = 1 - Math.exp(-dt / timeConstant);
+
+    this.normalizationGainDb +=
+      (desiredGainDb - this.normalizationGainDb) * gainAlpha;
+
+    const linearGain = Math.pow(
+      10,
+      this.normalizationGainDb / 20,
+    );
+
+    this.normalizer.gain.setTargetAtTime(
+      linearGain,
+      this.context.currentTime,
+      Math.max(0.03, timeConstant * 0.2),
+    );
   }
 
   private stopAll(resetOffset: boolean) {
