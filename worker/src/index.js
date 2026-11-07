@@ -37,7 +37,7 @@ export default {
         return json({
           ok: true,
           service: "rbmk-bili-audio-proxy",
-          resolver: "wbi-view + signed-plain-playurl",
+          resolver: "page-html first; WBI/API diagnostic fallback",
           endpoints: ["/resolve?bvid=BV...&p=1", "/stream?url=..."],
         });
       }
@@ -127,9 +127,16 @@ async function resolveAudio(request, requestUrl) {
     return json({ error: "invalid page" }, 400);
   }
 
+  const metadataErrors = [];
+
+  try {
+    return json(await resolveFromPublicPage(request, bvid, page));
+  } catch (error) {
+    metadataErrors.push(`page-html: ${errorMessage(error)}`);
+  }
+
   let view = null;
   let pageList = null;
-  let metadataErrors = [];
 
   try {
     const result = await wbiJson(
@@ -298,6 +305,177 @@ async function resolveAudio(request, requestUrl) {
     bandwidth,
     metadataStrategy: view ? "wbi-or-legacy-view" : "pagelist",
   });
+}
+
+async function resolveFromPublicPage(request, bvid, page) {
+  const pageUrl = new URL(`https://www.bilibili.com/video/${bvid}/`);
+  if (page > 1) pageUrl.searchParams.set("p", String(page));
+
+  const response = await fetch(pageUrl, {
+    headers: {
+      "User-Agent": CDN_UA,
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+      "Cache-Control": "no-cache",
+      Pragma: "no-cache",
+    },
+    redirect: "follow",
+  });
+
+  if (!response.ok) {
+    throw new Error(`video page HTTP ${response.status}`);
+  }
+
+  const html = await response.text();
+  const initial = extractEmbeddedJson(
+    html,
+    "window.__INITIAL_STATE__=",
+  );
+  const playinfo = extractEmbeddedJson(
+    html,
+    "window.__playinfo__=",
+  );
+
+  const videoData =
+    initial?.videoData ??
+    initial?.videoInfo ??
+    initial?.data?.videoData;
+
+  if (!videoData) {
+    throw new Error("video page missing __INITIAL_STATE__.videoData");
+  }
+
+  const pages = Array.isArray(videoData.pages)
+    ? videoData.pages
+    : [];
+
+  const selectedPage =
+    pages.find((item) => Number(item.page) === page) ??
+    pages[page - 1] ??
+    {
+      cid: videoData.cid,
+      page,
+      part: videoData.title,
+      duration: videoData.duration,
+    };
+
+  if (!selectedPage?.cid) {
+    throw new Error(`video page missing cid for P${page}`);
+  }
+
+  let sourceUrl = null;
+  let strategy = null;
+  let bandwidth = null;
+
+  if (Array.isArray(playinfo?.data?.dash?.audio)) {
+    const tracks = playinfo.data.dash.audio
+      .filter((track) => track && (track.baseUrl || track.base_url))
+      .sort((a, b) => Number(b.bandwidth || 0) - Number(a.bandwidth || 0));
+
+    const best = tracks[0];
+    if (best) {
+      sourceUrl = best.baseUrl || best.base_url;
+      bandwidth = Number(best.bandwidth || 0) || null;
+      strategy = "page-dash-audio";
+    }
+  }
+
+  if (!sourceUrl) {
+    const durl = playinfo?.data?.durl?.[0]?.url;
+    if (durl) {
+      sourceUrl = durl;
+      strategy = "page-durl";
+    }
+  }
+
+  if (!sourceUrl || !strategy) {
+    throw new Error("video page missing playable __playinfo__ audio");
+  }
+
+  sourceUrl = normalizeMediaUrl(sourceUrl);
+  assertAllowedStreamUrl(sourceUrl);
+
+  const stream = new URL("/stream", request.url);
+  stream.searchParams.set("url", sourceUrl);
+
+  const title = String(videoData.title || selectedPage.part || bvid);
+  const part = String(selectedPage.part || title);
+  const duration =
+    Number(selectedPage.duration || videoData.duration || 0) || null;
+
+  return {
+    bvid,
+    cid: Number(selectedPage.cid),
+    page,
+    title,
+    part,
+    owner: videoData.owner?.name ? String(videoData.owner.name) : null,
+    duration,
+    directUrl: sourceUrl,
+    sourceUrl,
+    proxyUrl: stream.toString(),
+    streamUrl: stream.toString(),
+    strategy,
+    bandwidth,
+    metadataStrategy: "page-html",
+  };
+}
+
+function extractEmbeddedJson(html, marker) {
+  const markerIndex = html.indexOf(marker);
+  if (markerIndex < 0) {
+    throw new Error(`missing ${marker}`);
+  }
+
+  let start = markerIndex + marker.length;
+  while (start < html.length && /\s/.test(html[start])) start += 1;
+
+  if (html[start] !== "{") {
+    throw new Error(`invalid JSON start after ${marker}`);
+  }
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = start; index < html.length; index += 1) {
+    const char = html[index];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (char === "{") depth += 1;
+    if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return JSON.parse(html.slice(start, index + 1));
+      }
+    }
+  }
+
+  throw new Error(`unterminated JSON after ${marker}`);
+}
+
+function normalizeMediaUrl(value) {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error("invalid media URL");
+  }
+
+  if (value.startsWith("//")) return `https:${value}`;
+  return value;
 }
 
 async function proxyStream(request, requestUrl) {
