@@ -754,3 +754,42 @@ footer span:nth-child(2) {
   font-size: 11px;
   line-height: 1.55;
 }
+
+
+.accident-toggle {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  margin-top: 10px;
+  padding: 11px 12px;
+  border: 1px solid #4f4332;
+  background: #1a1712;
+  cursor: pointer;
+}
+
+.accident-toggle input {
+  width: 16px;
+  height: 16px;
+  margin: 1px 0 0;
+  accent-color: #d79a5d;
+}
+
+.accident-toggle > span {
+  min-width: 0;
+}
+
+.accident-toggle strong {
+  display: block;
+  color: #e7d4bc;
+  font: 12px monospace;
+  font-weight: 500;
+}
+
+.accident-toggle small {
+  display: block;
+  margin-top: 5px;
+  color: #9e8b72;
+  font: 10px monospace;
+  line-height: 1.45;
+}

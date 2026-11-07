@@ -4,6 +4,11 @@ export const ROD_LENGTH = 5.8;
 export const ROD_WIDTH = 0.72;
 export const CORE_TOP_Y = 0;
 export const MAX_GUIDED_PROTRUSION = ROD_LENGTH - 0.35;
+export const CONTAINMENT_WALL_HEIGHT = ROD_LENGTH * 2;
+export const CONTAINMENT_WALL_RADIUS = 16.2;
+export const RANDOM_EJECTION_INTERVAL_SECONDS = 5;
+export const RANDOM_EJECTION_THRESHOLD = 0.3;
+export const RANDOM_EJECTION_UPWARD_MULTIPLIER = 10;
 export const LAUNCH_CHANNEL = 418;
 
 export interface RodSpec {

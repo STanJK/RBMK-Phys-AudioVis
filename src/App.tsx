@@ -30,6 +30,9 @@ export default function App() {
   const [elapsed, setElapsed] = useState(0);
   const [resetViewToken, setResetViewToken] = useState(0);
   const [launch418, setLaunch418] = useState(false);
+  const [randomEjectionsEnabled, setRandomEjectionsEnabled] = useState(false);
+  const [randomEjectionCount, setRandomEjectionCount] = useState(0);
+  const [lastRandomEjection, setLastRandomEjection] = useState<number | null>(null);
   const [physicsEpoch, setPhysicsEpoch] = useState(0);
   const [showBilibili, setShowBilibili] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -67,6 +70,8 @@ export default function App() {
 
   const resetPhysics = () => {
     setLaunch418(false);
+    setRandomEjectionCount(0);
+    setLastRandomEjection(null);
     setPhysicsEpoch((value) => value + 1);
   };
 
@@ -123,6 +128,11 @@ export default function App() {
             sensitivity={sensitivity}
             smoothing={smoothing}
             launch418={launch418}
+            randomEjectionsEnabled={randomEjectionsEnabled}
+            onRandomEjection={(channel) => {
+              setRandomEjectionCount((value) => value + 1);
+              setLastRandomEjection(channel);
+            }}
             resetViewToken={resetViewToken}
           />
 
@@ -366,6 +376,36 @@ export default function App() {
             <div className="physics-status">
               <span>CH-{LAUNCH_CHANNEL}</span>
               <strong>{launch418 ? "DYNAMIC / DISPLACED" : "GUIDED"}</strong>
+            </div>
+
+            <div className="physics-status">
+              <span>AIR WALL</span>
+              <strong>2× ROD LENGTH / OPEN TOP</strong>
+            </div>
+
+            <label className="accident-toggle">
+              <input
+                type="checkbox"
+                checked={randomEjectionsEnabled}
+                onChange={(event) =>
+                  setRandomEjectionsEnabled(event.target.checked)
+                }
+              />
+              <span>
+                <strong>随机超调事故</strong>
+                <small>
+                  每 5 秒 · 提升量 &gt; 30% · 上行棒随机脱离 · VY ×10
+                </small>
+              </span>
+            </label>
+
+            <div className="physics-status">
+              <span>RANDOM EJECTION</span>
+              <strong>
+                {randomEjectionCount === 0
+                  ? "ARMED / NONE"
+                  : `${randomEjectionCount} TOTAL · LAST CH-${lastRandomEjection}`}
+              </strong>
             </div>
 
             <button
