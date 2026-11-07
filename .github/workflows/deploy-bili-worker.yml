@@ -2,6 +2,11 @@ name: deploy-bili-worker
 
 on:
   workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths:
+      - "worker/**"
+      - ".github/workflows/deploy-bili-worker.yml"
 
 permissions:
   contents: read
