@@ -12,10 +12,6 @@ import {
 } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import {
-  EffectComposer,
-  N8AO,
-} from "@react-three/postprocessing";
-import {
   CuboidCollider,
   InstancedRigidBodies,
   TrimeshCollider,
@@ -827,6 +823,20 @@ function CoreBase({
         />
       </mesh>
 
+      <mesh
+        rotation={[-Math.PI / 2, 0, 0]}
+        position={[0, CORE_TOP_Y + 0.012, 0]}
+        renderOrder={1}
+      >
+        <ringGeometry args={[14.8, 18.8, 96]} />
+        <meshBasicMaterial
+          color="#000000"
+          transparent
+          opacity={0.16}
+          depthWrite={false}
+        />
+      </mesh>
+
       <LowerContainmentWall />
       {upperWallEnabled && <UpperContainmentWall />}
       <HeightLimitPlate />
@@ -1457,16 +1467,6 @@ function ReactorScene({
         maxPolarAngle={Math.PI * 0.49}
       />
 
-      <EffectComposer multisampling={0}>
-        <N8AO
-          quality="performance"
-          halfRes
-          aoRadius={1.8}
-          distanceFalloff={0.75}
-          intensity={1.15}
-          depthAwareUpsampling
-        />
-      </EffectComposer>
     </>
   );
 }
