@@ -18,6 +18,7 @@ const ALLOWED_STREAM_SUFFIXES = [
 
 const ALLOWED_STREAM_HOSTS = new Set([
   "api.squidtail.com",
+  "upos-hz-mirrorakam.akamaized.net",
 ]);
 
 export default {
