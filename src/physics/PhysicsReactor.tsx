@@ -862,6 +862,7 @@ function GuidedRodField({
     new Float32Array(guidedRods.length),
   );
   const detachedIndices = useRef<Set<number>>(new Set());
+  const everEjectedIndices = useRef<Set<number>>(new Set());
   const surfaceClearedIndices = useRef<Set<number>>(new Set());
   const collisionDisabledIndices = useRef<Set<number>>(new Set());
   const nextCollisionBudgetCheckAt = useRef(0);
@@ -918,6 +919,8 @@ function GuidedRodField({
     az5EjectAt.current = ejectAt;
 
     for (let index = 0; index < guidedRods.length; index += 1) {
+      if (everEjectedIndices.current.has(index)) continue;
+
       thermalStates.current[index] = {
         phase: "heating",
         selectedAt: now,
@@ -1352,7 +1355,14 @@ function GuidedRodField({
       const rod = guidedRods[index];
       const thermal = thermalStates.current[index];
 
-      if (!rb || !rod || !thermal) continue;
+      if (
+        !rb ||
+        !rod ||
+        !thermal ||
+        everEjectedIndices.current.has(index)
+      ) {
+        continue;
+      }
 
       if (!detachedIndices.current.has(index)) {
         rb.setTranslation(
@@ -1366,6 +1376,7 @@ function GuidedRodField({
       }
 
       detachedIndices.current.add(index);
+      everEjectedIndices.current.add(index);
       rb.setBodyType(rapier.RigidBodyType.Dynamic, true);
       rb.recomputeMassPropertiesFromColliders();
       rb.enableCcd(true);
@@ -1426,6 +1437,7 @@ function GuidedRodField({
       ROD_LENGTH / 2;
 
     detachedIndices.current.add(index);
+    everEjectedIndices.current.add(index);
 
     rb.setTranslation(
       {
