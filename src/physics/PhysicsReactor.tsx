@@ -98,6 +98,12 @@ const HEIGHT_LIMIT_HALF_THICKNESS = 0.16;
 const ROD_GUIDED_COLLISION_GROUPS = interactionGroups(0, [0]);
 const ROD_RETURN_COLLISION_GROUPS = interactionGroups(0, [0, 1]);
 const RETURN_FLOOR_COLLISION_GROUPS = interactionGroups(1, [0]);
+const ROD_DISABLED_COLLISION_GROUPS = interactionGroups(15, []);
+
+const MAX_REALTIME_COLLIDING_RODS = Math.floor(ROD_LAYOUT.length / 4);
+const COLLISION_CULL_RADIUS =
+  CONTAINMENT_WALL_RADIUS * 1.5;
+const COLLISION_BUDGET_CHECK_SECONDS = 0.25;
 
 const BEAT_VISUAL_BAR_INDICES = [2, 3] as const;
 const BEAT_FEATURE_HZ = 30;
@@ -107,8 +113,8 @@ const BEAT_MIN_BPM = 60;
 const BEAT_MAX_BPM = 200;
 const BEAT_PHASE_CORRECTION = 0.22;
 const QUAKE_START_INTENSITY = 0.2;
-const QUAKE_VERTICAL_AMPLITUDE = 2.3;
-const QUAKE_LATERAL_AMPLITUDE = 0.55;
+const QUAKE_VERTICAL_AMPLITUDE = 1.15;
+const QUAKE_LATERAL_AMPLITUDE = 0.275;
 const QUAKE_DEFAULT_PULSE_SECONDS = 0.18;
 
 const ROD_GREEN = new Color("#82956f");
@@ -823,20 +829,6 @@ function CoreBase({
         />
       </mesh>
 
-      <mesh
-        rotation={[-Math.PI / 2, 0, 0]}
-        position={[0, CORE_TOP_Y + 0.012, 0]}
-        renderOrder={1}
-      >
-        <ringGeometry args={[14.8, 18.8, 96]} />
-        <meshBasicMaterial
-          color="#000000"
-          transparent
-          opacity={0.16}
-          depthWrite={false}
-        />
-      </mesh>
-
       <LowerContainmentWall />
       {upperWallEnabled && <UpperContainmentWall />}
       <HeightLimitPlate />
@@ -871,6 +863,8 @@ function GuidedRodField({
   );
   const detachedIndices = useRef<Set<number>>(new Set());
   const surfaceClearedIndices = useRef<Set<number>>(new Set());
+  const collisionDisabledIndices = useRef<Set<number>>(new Set());
+  const nextCollisionBudgetCheckAt = useRef(0);
   const thermalStates = useRef<Array<RodThermalState | null>>(
     Array.from({ length: guidedRods.length }, () => null),
   );
@@ -954,10 +948,96 @@ function GuidedRodField({
   }, [randomEjectionsEnabled]);
 
   const enableReturnFloorCollision = (rb: RapierRigidBody) => {
-    for (let colliderIndex = 0; colliderIndex < rb.numColliders(); colliderIndex += 1) {
+    for (
+      let colliderIndex = 0;
+      colliderIndex < rb.numColliders();
+      colliderIndex += 1
+    ) {
       rb.collider(colliderIndex).setCollisionGroups(
         ROD_RETURN_COLLISION_GROUPS,
       );
+    }
+  };
+
+  const disableRodCollisions = (
+    index: number,
+    rb: RapierRigidBody,
+  ) => {
+    if (collisionDisabledIndices.current.has(index)) return;
+
+    for (
+      let colliderIndex = 0;
+      colliderIndex < rb.numColliders();
+      colliderIndex += 1
+    ) {
+      rb.collider(colliderIndex).setCollisionGroups(
+        ROD_DISABLED_COLLISION_GROUPS,
+      );
+    }
+
+    rb.enableCcd(false);
+    collisionDisabledIndices.current.add(index);
+  };
+
+  const enforceCollisionBudget = (
+    bodies: RapierRigidBody[],
+    elapsed: number,
+  ) => {
+    if (elapsed < nextCollisionBudgetCheckAt.current) return;
+
+    nextCollisionBudgetCheckAt.current =
+      elapsed + COLLISION_BUDGET_CHECK_SECONDS;
+
+    let collidableDynamicCount = 0;
+    const farCandidates: number[] = [];
+
+    for (
+      let index = 0;
+      index < guidedRods.length && index < bodies.length;
+      index += 1
+    ) {
+      if (
+        !detachedIndices.current.has(index) ||
+        collisionDisabledIndices.current.has(index)
+      ) {
+        continue;
+      }
+
+      const rb = bodies[index];
+      if (!rb || !rb.isDynamic()) continue;
+
+      collidableDynamicCount += 1;
+
+      const translation = rb.translation();
+      const radialDistance = Math.hypot(
+        translation.x,
+        translation.z,
+      );
+
+      if (radialDistance > COLLISION_CULL_RADIUS) {
+        farCandidates.push(index);
+      }
+    }
+
+    let excess =
+      collidableDynamicCount - MAX_REALTIME_COLLIDING_RODS;
+
+    while (excess > 0 && farCandidates.length > 0) {
+      const pick = Math.floor(
+        Math.random() * farCandidates.length,
+      );
+      const index = farCandidates[pick];
+      const last = farCandidates.pop()!;
+
+      if (pick < farCandidates.length) {
+        farCandidates[pick] = last;
+      }
+
+      const rb = bodies[index];
+      if (!rb) continue;
+
+      disableRodCollisions(index, rb);
+      excess -= 1;
     }
   };
 
@@ -970,6 +1050,8 @@ function GuidedRodField({
     const elapsed = clock.getElapsedTime();
     elapsedSeconds.current = elapsed;
     const safeDelta = Math.max(delta, 1 / 240);
+
+    enforceCollisionBudget(bodies, elapsed);
 
     for (
       let index = 0;
@@ -990,7 +1072,10 @@ function GuidedRodField({
 
         if (bottomY >= CORE_TOP_Y + 0.01) {
           surfaceClearedIndices.current.add(index);
-          enableReturnFloorCollision(rb);
+
+          if (!collisionDisabledIndices.current.has(index)) {
+            enableReturnFloorCollision(rb);
+          }
 
           if (thermal) {
             thermal.recoverable = false;
@@ -1027,7 +1112,13 @@ function GuidedRodField({
           );
           rb.setLinvel({ x: 0, y: 0, z: 0 }, true);
           rb.setAngvel({ x: 0, y: 0, z: 0 }, true);
-          rb.setBodyType(rapier.RigidBodyType.KinematicPositionBased, true);
+          rb.setBodyType(
+            rapier.RigidBodyType.KinematicPositionBased,
+            true,
+          );
+          rb.enableCcd(false);
+          collisionDisabledIndices.current.delete(index);
+
           for (
             let colliderIndex = 0;
             colliderIndex < rb.numColliders();
