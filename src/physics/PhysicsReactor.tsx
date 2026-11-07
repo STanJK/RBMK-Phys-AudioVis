@@ -95,11 +95,15 @@ const GRAVITY = 9.81;
 const HEIGHT_LIMIT_HALF_SIZE = 18.4;
 const HEIGHT_LIMIT_HALF_THICKNESS = 0.16;
 
-const ROD_GUIDED_COLLISION_GROUPS = interactionGroups(0, [0]);
-const ROD_RETURN_COLLISION_GROUPS = interactionGroups(0, [0, 1]);
-const RETURN_FLOOR_COLLISION_GROUPS = interactionGroups(1, [0]);
+const ENVIRONMENT_COLLISION_GROUPS = interactionGroups(0, [1, 2]);
+const ROD_GUIDED_COLLISION_GROUPS = interactionGroups(1, [0, 1]);
+const ROD_RETURN_COLLISION_GROUPS = interactionGroups(1, [0, 1, 3]);
+const ROD_ENV_ONLY_GUIDED_COLLISION_GROUPS = interactionGroups(2, [0]);
+const ROD_ENV_ONLY_RETURN_COLLISION_GROUPS = interactionGroups(2, [0, 3]);
+const RETURN_FLOOR_COLLISION_GROUPS = interactionGroups(3, [1, 2]);
 const ROD_DISABLED_COLLISION_GROUPS = interactionGroups(15, []);
 
+const MAX_ROD_PAIR_COLLIDING_RODS = Math.floor(ROD_LAYOUT.length / 2);
 const MAX_REALTIME_COLLIDING_RODS = Math.floor(ROD_LAYOUT.length / 4);
 const COLLISION_CULL_RADIUS =
   CONTAINMENT_WALL_RADIUS * 1.5;
@@ -299,6 +303,7 @@ function CylindricalContainmentWall({
           ]}
           position={segment.position}
           rotation={segment.rotation}
+          collisionGroups={ENVIRONMENT_COLLISION_GROUPS}
           friction={0.74}
           restitution={0.12}
         />
@@ -764,6 +769,7 @@ function GroundSystem({
 
       <TrimeshCollider
         args={[collider.vertices, collider.indices]}
+        collisionGroups={ENVIRONMENT_COLLISION_GROUPS}
         friction={0.9}
         restitution={0.08}
       />
@@ -793,6 +799,7 @@ function HeightLimitPlate() {
           HEIGHT_LIMIT_HALF_SIZE,
         ]}
         position={[0, HEIGHT_LIMIT_Y, 0]}
+        collisionGroups={ENVIRONMENT_COLLISION_GROUPS}
         friction={0.72}
         restitution={0.22}
       />
@@ -864,6 +871,7 @@ function GuidedRodField({
   const detachedIndices = useRef<Set<number>>(new Set());
   const everEjectedIndices = useRef<Set<number>>(new Set());
   const surfaceClearedIndices = useRef<Set<number>>(new Set());
+  const rodPairCollisionDisabledIndices = useRef<Set<number>>(new Set());
   const collisionDisabledIndices = useRef<Set<number>>(new Set());
   const nextCollisionBudgetCheckAt = useRef(0);
   const thermalStates = useRef<Array<RodThermalState | null>>(
@@ -950,16 +958,49 @@ function GuidedRodField({
     }
   }, [randomEjectionsEnabled]);
 
-  const enableReturnFloorCollision = (rb: RapierRigidBody) => {
+  const applyRodCollisionMode = (
+    index: number,
+    rb: RapierRigidBody,
+  ) => {
+    const groups = collisionDisabledIndices.current.has(index)
+      ? ROD_DISABLED_COLLISION_GROUPS
+      : rodPairCollisionDisabledIndices.current.has(index)
+        ? surfaceClearedIndices.current.has(index)
+          ? ROD_ENV_ONLY_RETURN_COLLISION_GROUPS
+          : ROD_ENV_ONLY_GUIDED_COLLISION_GROUPS
+        : surfaceClearedIndices.current.has(index)
+          ? ROD_RETURN_COLLISION_GROUPS
+          : ROD_GUIDED_COLLISION_GROUPS;
+
     for (
       let colliderIndex = 0;
       colliderIndex < rb.numColliders();
       colliderIndex += 1
     ) {
-      rb.collider(colliderIndex).setCollisionGroups(
-        ROD_RETURN_COLLISION_GROUPS,
-      );
+      rb.collider(colliderIndex).setCollisionGroups(groups);
     }
+  };
+
+  const enableReturnFloorCollision = (
+    index: number,
+    rb: RapierRigidBody,
+  ) => {
+    applyRodCollisionMode(index, rb);
+  };
+
+  const disableRodPairCollisions = (
+    index: number,
+    rb: RapierRigidBody,
+  ) => {
+    if (
+      collisionDisabledIndices.current.has(index) ||
+      rodPairCollisionDisabledIndices.current.has(index)
+    ) {
+      return;
+    }
+
+    rodPairCollisionDisabledIndices.current.add(index);
+    applyRodCollisionMode(index, rb);
   };
 
   const disableRodCollisions = (
@@ -968,21 +1009,65 @@ function GuidedRodField({
   ) => {
     if (collisionDisabledIndices.current.has(index)) return;
 
-    for (
-      let colliderIndex = 0;
-      colliderIndex < rb.numColliders();
-      colliderIndex += 1
-    ) {
-      rb.collider(colliderIndex).setCollisionGroups(
-        ROD_DISABLED_COLLISION_GROUPS,
-      );
-    }
-
-    rb.enableCcd(false);
     collisionDisabledIndices.current.add(index);
+    applyRodCollisionMode(index, rb);
+    rb.enableCcd(false);
   };
 
-  const enforceCollisionBudget = (
+  const enforceRodPairCollisionBudget = (
+    bodies: RapierRigidBody[],
+  ) => {
+    if (
+      detachedIndices.current.size <=
+      MAX_ROD_PAIR_COLLIDING_RODS
+    ) {
+      return;
+    }
+
+    const pairCollisionCandidates: number[] = [];
+
+    for (
+      let index = 0;
+      index < guidedRods.length && index < bodies.length;
+      index += 1
+    ) {
+      if (
+        !detachedIndices.current.has(index) ||
+        collisionDisabledIndices.current.has(index) ||
+        rodPairCollisionDisabledIndices.current.has(index)
+      ) {
+        continue;
+      }
+
+      const rb = bodies[index];
+      if (!rb || !rb.isDynamic()) continue;
+      pairCollisionCandidates.push(index);
+    }
+
+    let excess =
+      pairCollisionCandidates.length -
+      MAX_ROD_PAIR_COLLIDING_RODS;
+
+    while (excess > 0 && pairCollisionCandidates.length > 0) {
+      const pick = Math.floor(
+        Math.random() * pairCollisionCandidates.length,
+      );
+      const index = pairCollisionCandidates[pick];
+      const last = pairCollisionCandidates.pop()!;
+
+      if (pick < pairCollisionCandidates.length) {
+        pairCollisionCandidates[pick] = last;
+      }
+
+      const rb = bodies[index];
+      if (!rb) continue;
+
+      disableRodPairCollisions(index, rb);
+      excess -= 1;
+    }
+  };
+
+  const enforceFarCollisionBudget = (
     bodies: RapierRigidBody[],
     elapsed: number,
   ) => {
@@ -1054,7 +1139,8 @@ function GuidedRodField({
     elapsedSeconds.current = elapsed;
     const safeDelta = Math.max(delta, 1 / 240);
 
-    enforceCollisionBudget(bodies, elapsed);
+    enforceRodPairCollisionBudget(bodies);
+    enforceFarCollisionBudget(bodies, elapsed);
 
     for (
       let index = 0;
@@ -1077,7 +1163,7 @@ function GuidedRodField({
           surfaceClearedIndices.current.add(index);
 
           if (!collisionDisabledIndices.current.has(index)) {
-            enableReturnFloorCollision(rb);
+            enableReturnFloorCollision(index, rb);
           }
 
           if (thermal) {
@@ -1121,6 +1207,7 @@ function GuidedRodField({
           );
           rb.enableCcd(false);
           collisionDisabledIndices.current.delete(index);
+          rodPairCollisionDisabledIndices.current.delete(index);
 
           for (
             let colliderIndex = 0;
