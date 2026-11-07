@@ -98,9 +98,31 @@ const ROD_GUIDED_COLLISION_GROUPS = interactionGroups(0, [0]);
 const ROD_RETURN_COLLISION_GROUPS = interactionGroups(0, [0, 1]);
 const RETURN_FLOOR_COLLISION_GROUPS = interactionGroups(1, [0]);
 
+const BEAT_VISUAL_BAR_INDICES = [2, 3] as const;
+const QUAKE_START_INTENSITY = 0.2;
+const QUAKE_VERTICAL_AMPLITUDE = 0.46;
+const QUAKE_LATERAL_AMPLITUDE = 0.11;
+const QUAKE_DEFAULT_PULSE_SECONDS = 0.18;
+
 const ROD_GREEN = new Color("#82956f");
 const ROD_HOT = new Color("#d24f43");
 const ROD_COLD_GRAY = new Color("#737876");
+
+function spectrumBarToBin(index: number) {
+  return Math.min(
+    1023,
+    Math.floor(Math.pow(index / 47, 2) * 700),
+  );
+}
+
+function median(values: number[]) {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[middle - 1] + sorted[middle]) / 2
+    : sorted[middle];
+}
 
 function CameraReset({ token }: { token: number }) {
   const { camera } = useThree();
@@ -274,14 +296,173 @@ function buildExternalGridGeometry() {
   return geometry;
 }
 
-function ExternalGround() {
+function GroundSystem({
+  engine,
+  az5TriggerToken,
+}: {
+  engine: AudioEngine;
+  az5TriggerToken: number;
+}) {
+  const body = useRef<RapierRigidBody | null>(null);
   const collider = useMemo(() => buildExternalGroundCollider(), []);
   const gridGeometry = useMemo(() => buildExternalGridGeometry(), []);
+  const elapsedSeconds = useRef(0);
+  const lastAz5TriggerToken = useRef(az5TriggerToken);
+  const quakeStartedAt = useRef<number | null>(null);
+  const slowBass = useRef(0);
+  const bassDeviation = useRef(0);
+  const previousBass = useRef(0);
+  const previousPreviousBass = useRef(0);
+  const lastBeatAt = useRef(-10);
+  const lastPulseAt = useRef(-10);
+  const beatIntervals = useRef<number[]>([]);
+  const bpm = useRef(0);
+  const beatCount = useRef(0);
+  const currentTranslation = useRef({ x: 0, y: 0, z: 0 });
 
   useEffect(() => () => gridGeometry.dispose(), [gridGeometry]);
 
+  useEffect(() => {
+    if (az5TriggerToken === lastAz5TriggerToken.current) return;
+    lastAz5TriggerToken.current = az5TriggerToken;
+    quakeStartedAt.current =
+      az5TriggerToken > 0 ? elapsedSeconds.current : null;
+    lastBeatAt.current = -10;
+    lastPulseAt.current = -10;
+    beatIntervals.current = [];
+    bpm.current = 0;
+  }, [az5TriggerToken]);
+
+  useFrame(({ clock }, delta) => {
+    const rb = body.current;
+    if (!rb) return;
+
+    const elapsed = clock.getElapsedTime();
+    elapsedSeconds.current = elapsed;
+    const state = engine.getState();
+
+    let targetX = 0;
+    let targetY = 0;
+    let targetZ = 0;
+
+    if (quakeStartedAt.current !== null && state.playing) {
+      const bins = engine.readFrequencyData();
+      const bass =
+        BEAT_VISUAL_BAR_INDICES.reduce(
+          (sum, barIndex) =>
+            sum + bins[spectrumBarToBin(barIndex)] / 255,
+          0,
+        ) / BEAT_VISUAL_BAR_INDICES.length;
+
+      const slowAlpha = 1 - Math.exp(-delta / 0.85);
+      const deviationAlpha = 1 - Math.exp(-delta / 1.1);
+      slowBass.current += (bass - slowBass.current) * slowAlpha;
+      bassDeviation.current +=
+        (Math.abs(bass - slowBass.current) - bassDeviation.current) *
+        deviationAlpha;
+
+      const threshold =
+        slowBass.current +
+        Math.max(0.035, bassDeviation.current * 1.7);
+
+      const localPeak =
+        previousBass.current > previousPreviousBass.current &&
+        previousBass.current >= bass;
+
+      const beatDetected =
+        localPeak &&
+        previousBass.current > Math.max(0.065, threshold) &&
+        elapsed - lastBeatAt.current >= 0.22;
+
+      if (beatDetected) {
+        const interval = elapsed - lastBeatAt.current;
+        if (interval >= 0.28 && interval <= 1.1) {
+          beatIntervals.current.push(interval);
+          if (beatIntervals.current.length > 8) {
+            beatIntervals.current.shift();
+          }
+
+          const beatPeriod = median(beatIntervals.current);
+          if (beatPeriod > 0) {
+            bpm.current = 60 / beatPeriod;
+          }
+        }
+
+        lastBeatAt.current = elapsed;
+        lastPulseAt.current = elapsed;
+        beatCount.current += 1;
+      }
+
+      previousPreviousBass.current = previousBass.current;
+      previousBass.current = bass;
+
+      const ramp = Math.min(
+        1,
+        Math.max(
+          0,
+          (elapsed - quakeStartedAt.current) / AZ5_RAMP_SECONDS,
+        ),
+      );
+      const intensity =
+        QUAKE_START_INTENSITY +
+        (1 - QUAKE_START_INTENSITY) * ramp;
+
+      const detectedPeriod =
+        bpm.current > 0 ? 60 / bpm.current : 0;
+      const pulseSeconds = detectedPeriod
+        ? Math.min(
+            0.24,
+            Math.max(0.12, detectedPeriod * 0.32),
+          )
+        : QUAKE_DEFAULT_PULSE_SECONDS;
+
+      const pulseAge = elapsed - lastPulseAt.current;
+      const pulse =
+        pulseAge >= 0 && pulseAge < pulseSeconds
+          ? Math.pow(1 - pulseAge / pulseSeconds, 2)
+          : 0;
+
+      if (pulse > 0) {
+        const direction =
+          beatCount.current * 2.399963229728653;
+        targetY =
+          QUAKE_VERTICAL_AMPLITUDE * intensity * pulse;
+        targetX =
+          Math.sin(direction) *
+          QUAKE_LATERAL_AMPLITUDE *
+          intensity *
+          pulse;
+        targetZ =
+          Math.cos(direction) *
+          QUAKE_LATERAL_AMPLITUDE *
+          intensity *
+          pulse;
+      }
+    } else {
+      previousPreviousBass.current = 0;
+      previousBass.current = 0;
+      slowBass.current = 0;
+      bassDeviation.current = 0;
+    }
+
+    const settle = 1 - Math.exp(-delta * 18);
+    currentTranslation.current.x +=
+      (targetX - currentTranslation.current.x) * settle;
+    currentTranslation.current.y +=
+      (targetY - currentTranslation.current.y) * settle;
+    currentTranslation.current.z +=
+      (targetZ - currentTranslation.current.z) * settle;
+
+    rb.setNextKinematicTranslation(currentTranslation.current);
+  });
+
   return (
-    <>
+    <RigidBody
+      ref={body}
+      type="kinematicPosition"
+      colliders={false}
+      position={[0, 0, 0]}
+    >
       <mesh
         receiveShadow
         rotation={[-Math.PI / 2, 0, 0]}
@@ -309,20 +490,12 @@ function ExternalGround() {
         />
       </lineSegments>
 
-      <RigidBody type="fixed" colliders={false}>
-        <TrimeshCollider
-          args={[collider.vertices, collider.indices]}
-          friction={0.9}
-          restitution={0.08}
-        />
-      </RigidBody>
-    </>
-  );
-}
+      <TrimeshCollider
+        args={[collider.vertices, collider.indices]}
+        friction={0.9}
+        restitution={0.08}
+      />
 
-function GlobalReturnFloor() {
-  return (
-    <RigidBody type="fixed" colliders={false}>
       <CylinderCollider
         args={[0.05, CONTAINMENT_WALL_RADIUS]}
         position={[0, CORE_TOP_Y - 0.05, 0]}
@@ -382,8 +555,6 @@ function CoreBase({
 
       <LowerContainmentWall />
       {upperWallEnabled && <UpperContainmentWall />}
-      <ExternalGround />
-      <GlobalReturnFloor />
       <HeightLimitPlate />
     </>
   );
@@ -970,6 +1141,14 @@ function ReactorScene({
         intensity={2.1}
         shadow-mapSize-width={2048}
         shadow-mapSize-height={2048}
+        shadow-camera-left={-EXTERNAL_GROUND_RADIUS - 8}
+        shadow-camera-right={EXTERNAL_GROUND_RADIUS + 8}
+        shadow-camera-top={EXTERNAL_GROUND_RADIUS + 8}
+        shadow-camera-bottom={-EXTERNAL_GROUND_RADIUS - 8}
+        shadow-camera-near={1}
+        shadow-camera-far={260}
+        shadow-bias={-0.00025}
+        shadow-normalBias={0.025}
       />
       <pointLight
         position={[-11, 10, -8]}
@@ -980,6 +1159,10 @@ function ReactorScene({
       <Suspense fallback={null}>
         <Physics gravity={[0, -GRAVITY, 0]} colliders={false}>
           <CoreBase upperWallEnabled={az5TriggerToken === 0} />
+          <GroundSystem
+            engine={engine}
+            az5TriggerToken={az5TriggerToken}
+          />
           <GuidedRodField
             engine={engine}
             sensitivity={sensitivity}
