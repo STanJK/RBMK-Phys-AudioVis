@@ -2,42 +2,55 @@
 
 Physics-first RBMK-inspired audio visualizer.
 
-This project is a clean React/TypeScript implementation built around:
+## Current milestone: React parity baseline
 
-- React 19 + Vite
-- React Three Fiber / Three.js
-- Rapier 3D rigid-body physics
-- Web Audio API for future FFT / phase / transient analysis
+Before adding Three.js / Rapier, the project first reproduces the reference visualizer in a clean React + TypeScript architecture:
 
-## Core idea
+- Web Audio API
+- Built-in demo signal
+- Microphone capture
+- Local audio file import
+- Play / pause / seek
+- Sensitivity, motion smoothing and playback volume controls
+- 709-channel radial Canvas visualizer
+- 48-band spectrum display
+- Input level and peak-frequency readouts
+- Pointer rotation, wheel zoom and view reset
 
-Normal rods remain guided/kinematic and respond to audio. Selected channels can lose their guide constraint, become dynamic rigid bodies, launch out of the core, collide with other rods, fall across the array, and remain displaced.
+The current radial mapping follows the reference behavior:
 
-The first debug target is deliberately simple:
+```text
+core center -> low frequencies
+core edge   -> high frequencies
+```
 
-> **CH-418: LAUNCH**
+The next milestone replaces the fake-3D Canvas rods with real Three.js geometry and Rapier rigid bodies, while preserving the React audio/control layer.
 
-The long-term audio mapping will experiment with frequency, phase, transient detection, stereo phase difference, and irreversible physical state.
-
-## Inspiration
-
-The radial audio-mapping idea is inspired by the MIT-licensed project:
-
-- https://github.com/wzk112/reactor-audio-visualizer
-
-This repository is a clean implementation with a different rendering/physics architecture; it does not copy the original Canvas implementation.
-
-## Development
+## Run locally
 
 ```bash
 npm install
 npm run dev
 ```
 
-Cloud CI runs type-checking and production builds on GitHub Actions.
+## CI
 
-## Status
+GitHub Actions runs:
 
-Initial scaffold / physics PoC.
+```bash
+npm install
+npm run typecheck
+npm run build
+```
+
+## Reference implementation
+
+The interaction model and substantial portions of the initial Canvas/audio behavior are adapted from the MIT-licensed project:
+
+- https://github.com/wzk112/reactor-audio-visualizer
+
+See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+## Disclaimer
 
 This is an audiovisual toy, not a reactor simulation.
