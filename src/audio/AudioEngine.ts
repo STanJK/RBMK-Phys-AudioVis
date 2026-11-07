@@ -182,7 +182,10 @@ export class AudioEngine {
         return;
       }
 
-      const supported = navigator.mediaDevices.getSupportedConstraints();
+      const supported = navigator.mediaDevices.getSupportedConstraints() as
+        MediaTrackSupportedConstraints & {
+          suppressLocalAudioPlayback?: boolean;
+        };
 
       if (supported.suppressLocalAudioPlayback) {
         try {
@@ -202,8 +205,11 @@ export class AudioEngine {
       // This makes the existing volume slider the effective Bilibili volume.
       this.master!.gain.value = this.volumePercent / 100;
 
+      const settings = audioTrack.getSettings() as MediaTrackSettings & {
+        suppressLocalAudioPlayback?: boolean;
+      };
       const localPlaybackSuppressed =
-        audioTrack.getSettings().suppressLocalAudioPlayback === true;
+        settings.suppressLocalAudioPlayback === true;
 
       audioTrack.onended = () => {
         if (this.state.mode !== "tab") return;
